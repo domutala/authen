@@ -70,15 +70,15 @@ An Authen identity can be used across applications while each application keeps 
 
 ## Core concepts
 
-| Concept | Responsibility |
-| --- | --- |
-| **User** | A stable account, independent of authentication methods. |
-| **Identity** | A link between a user and an identity recognized by a provider. |
-| **Profile** | User-facing information, separate from authentication. |
-| **Credential** | A means of proving identity, when a provider requires one. |
-| **Session** | An authenticated connection that can expire or be revoked. |
-| **Provider** | A pluggable mechanism for verifying identity. |
-| **Application** | A client that delegates authentication to the platform. |
+| Concept         | Responsibility                                                  |
+| --------------- | --------------------------------------------------------------- |
+| **User**        | A stable account, independent of authentication methods.        |
+| **Identity**    | A link between a user and an identity recognized by a provider. |
+| **Profile**     | User-facing information, separate from authentication.          |
+| **Credential**  | A means of proving identity, when a provider requires one.      |
+| **Session**     | An authenticated connection that can expire or be revoked.      |
+| **Provider**    | A pluggable mechanism for verifying identity.                   |
+| **Application** | A client that delegates authentication to the platform.         |
 
 These concepts are deliberately separated so that changing one authentication method does not require changing a user account or every connected application.
 
@@ -139,6 +139,11 @@ Authen is intended to be developed openly, with a focus on interoperability, ext
 Contributions, design discussions, security reviews, documentation improvements, and new provider integrations will be welcome as the repository and contribution process take shape.
 
 **License:** _To be determined_
+
+## License
+
+Authen is open-source software licensed under
+the [Apache License 2.0](./LICENSE).
 
 ---
 
