@@ -1,0 +1,9 @@
+packages:
+  - packages/**
+  - "packages/providers/*"
+  - "packages/adapters/*"
+  - "packages/protocols/*"
+  - "apps/*"
+
+allowBuilds:
+  esbuild: true
