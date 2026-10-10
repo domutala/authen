@@ -194,6 +194,19 @@ importers:
         specifier: ^8.71.1
         version: 8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@7.0.2)
 
+  packages/adapters/memory:
+    dependencies:
+      '@authen/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      tsdown:
+        specifier: ^0.15.0
+        version: 0.15.12(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
   packages/core:
     devDependencies:
       tsdown:

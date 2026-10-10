@@ -4,7 +4,6 @@
   "description": "Authen core",
   "type": "module",
   "sideEffects": false,
-  "license": "MIT",
   "files": [
     "dist"
   ],

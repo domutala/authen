@@ -4,7 +4,6 @@
   "description": "Authen provider contracts: manifest, registry and authentication provider interfaces",
   "type": "module",
   "sideEffects": false,
-  "license": "MIT",
   "files": [
     "dist"
   ],
