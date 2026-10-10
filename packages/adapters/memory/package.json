@@ -1,7 +1,7 @@
 {
   "name": "@authen/adapter-memory",
   "version": "0.0.1",
-  "description": "",
+  "description": "Authen in-memory adapter: repositories and dev infrastructure to run the core without a database",
   "type": "module",
   "sideEffects": false,
   "files": [
@@ -18,12 +18,16 @@
   "scripts": {
     "build": "tsdown src/index.ts --format esm --dts --clean",
     "dev": "tsdown src/index.ts --format esm --dts --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@authen/core": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@authen/provider-password": "workspace:*",
+    "@authen/provider-email-otp": "workspace:*",
     "tsdown": "^0.15.0",
     "typescript": "^5.9.0"
   },

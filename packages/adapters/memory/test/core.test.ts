@@ -1,0 +1,422 @@
+import type { AuthResult, ProviderInstance, User, UserId } from "@authen/core";
+import { AuthenticationError } from "@authen/core";
+import {
+  createEmailOtpProvider,
+  type OtpMessage,
+} from "@authen/provider-email-otp";
+import { createPasswordProvider } from "@authen/provider-password";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createMemoryCore, ManualClock } from "../src/index.js";
+
+const MINUTE = 60 * 1000;
+const EMAIL = "mamadou@example.com";
+
+/** Prépare un core en mémoire avec les providers Email OTP et Password. */
+async function setup(options: Parameters<typeof createMemoryCore>[0] = {}) {
+  const clock = new ManualClock(new Date("2026-01-01T00:00:00Z"));
+  const core = createMemoryCore({ clock, ...options });
+
+  // "Boîte mail" factice : on garde les codes envoyés pour les relire.
+  const sent: OtpMessage[] = [];
+  core.services.providers.register(
+    createEmailOtpProvider({
+      challenges: core.challenges,
+      digester: core.digester,
+      random: core.random,
+      clock,
+      sender: {
+        async send(message) {
+          sent.push(message);
+        },
+      },
+    }),
+  );
+
+  const password = createPasswordProvider({
+    identities: core.repositories.identities,
+    identityService: core.services.identities,
+    credentials: core.repositories.credentials,
+    hasher: core.hasher,
+    ids: core.ids,
+    clock,
+    unitOfWork: core.unitOfWork,
+  });
+  core.services.providers.register(password);
+
+  const emailInstance = await core.addProviderInstance({
+    id: "email-main",
+    type: "email-otp",
+  });
+  const passwordInstance = await core.addProviderInstance({
+    id: "password-main",
+    type: "password",
+  });
+
+  /** Dernier code reçu par email. */
+  const lastCode = (): string => {
+    const message = sent.at(-1);
+    assert.ok(message, "aucun email envoyé");
+    return message.code;
+  };
+
+  return {
+    clock,
+    core,
+    password,
+    emailInstance,
+    passwordInstance,
+    lastCode,
+  };
+}
+
+type Env = Awaited<ReturnType<typeof setup>>;
+
+function expectType<T extends AuthResult["type"]>(
+  result: AuthResult,
+  type: T,
+): Extract<AuthResult, { type: T }> {
+  assert.equal(result.type, type, JSON.stringify(result));
+  return result as Extract<AuthResult, { type: T }>;
+}
+
+/** Connexion complète par code email : begin -> lire le code -> continue. */
+async function signInWithEmail(env: Env, email = EMAIL) {
+  const started = expectType(
+    await env.core.services.auth.begin({
+      providerInstanceId: env.emailInstance.id,
+      clientId: null,
+      purpose: "sign_in",
+      userId: null,
+      input: { email },
+    }),
+    "challenge",
+  );
+
+  return expectType(
+    await env.core.services.auth.continue(started.transactionId, {
+      code: env.lastCode(),
+    }),
+    "authenticated",
+  );
+}
+
+test("Email OTP : première connexion crée le compte, la seconde le retrouve", async () => {
+  const env = await setup();
+
+  const first = await signInWithEmail(env);
+  assert.equal(first.isNewUser, true);
+
+  const user = await env.core.services.users.findById(first.userId);
+  assert.equal(user?.status, "active");
+  assert.equal(env.core.events.ofType("user.registered").length, 1);
+
+  const identities = await env.core.services.identities.listByUser(
+    first.userId,
+  );
+  assert.equal(identities.length, 1);
+  assert.equal(identities[0]?.providerSubject, EMAIL);
+
+  const second = await signInWithEmail(env);
+  assert.equal(second.isNewUser, false);
+  assert.equal(second.userId, first.userId);
+  assert.equal(env.core.events.ofType("user.registered").length, 1);
+});
+
+test("Email OTP : l'email est normalisé (majuscules et espaces)", async () => {
+  const env = await setup();
+  const first = await signInWithEmail(env, EMAIL);
+  const second = await signInWithEmail(env, `  ${EMAIL.toUpperCase()} `);
+  assert.equal(second.userId, first.userId);
+});
+
+test("Email OTP : un mauvais code est refusé puis le bon est accepté", async () => {
+  const env = await setup();
+  const started = expectType(
+    await env.core.services.auth.begin({
+      providerInstanceId: env.emailInstance.id,
+      clientId: null,
+      purpose: "sign_in",
+      userId: null,
+      input: { email: EMAIL },
+    }),
+    "challenge",
+  );
+
+  const good = env.lastCode();
+  const wrong = good === "000000" ? "111111" : "000000";
+
+  const refused = expectType(
+    await env.core.services.auth.continue(started.transactionId, {
+      code: wrong,
+    }),
+    "rejected",
+  );
+  assert.equal(refused.code, "invalid_code");
+  assert.equal(refused.retryable, true);
+
+  expectType(
+    await env.core.services.auth.continue(started.transactionId, {
+      code: good,
+    }),
+    "authenticated",
+  );
+});
+
+test("Email OTP : trop de mauvais codes ferme la transaction", async () => {
+  const env = await setup({ authentication: { maxAttempts: 2 } });
+  const started = expectType(
+    await env.core.services.auth.begin({
+      providerInstanceId: env.emailInstance.id,
+      clientId: null,
+      purpose: "sign_in",
+      userId: null,
+      input: { email: EMAIL },
+    }),
+    "challenge",
+  );
+
+  const good = env.lastCode();
+  const wrong = good === "000000" ? "111111" : "000000";
+
+  const first = expectType(
+    await env.core.services.auth.continue(started.transactionId, {
+      code: wrong,
+    }),
+    "rejected",
+  );
+  assert.equal(first.retryable, true);
+
+  const second = expectType(
+    await env.core.services.auth.continue(started.transactionId, {
+      code: wrong,
+    }),
+    "rejected",
+  );
+  assert.equal(second.retryable, false);
+
+  // Même avec le bon code, la transaction est terminée.
+  await assert.rejects(
+    env.core.services.auth.continue(started.transactionId, { code: good }),
+    (error: unknown) =>
+      error instanceof AuthenticationError &&
+      error.code === "transaction_not_active",
+  );
+});
+
+test("Email OTP : un code expiré est refusé", async () => {
+  const env = await setup();
+  const started = expectType(
+    await env.core.services.auth.begin({
+      providerInstanceId: env.emailInstance.id,
+      clientId: null,
+      purpose: "sign_in",
+      userId: null,
+      input: { email: EMAIL },
+    }),
+    "challenge",
+  );
+
+  env.clock.advance(11 * MINUTE);
+
+  await assert.rejects(
+    env.core.services.auth.continue(started.transactionId, {
+      code: env.lastCode(),
+    }),
+    (error: unknown) =>
+      error instanceof AuthenticationError &&
+      error.code === "transaction_expired",
+  );
+});
+
+test("Inscription fermée : une identité inconnue est refusée", async () => {
+  const env = await setup({ security: { allowSelfRegistration: false } });
+  const started = expectType(
+    await env.core.services.auth.begin({
+      providerInstanceId: env.emailInstance.id,
+      clientId: null,
+      purpose: "sign_in",
+      userId: null,
+      input: { email: EMAIL },
+    }),
+    "challenge",
+  );
+
+  const refused = expectType(
+    await env.core.services.auth.continue(started.transactionId, {
+      code: env.lastCode(),
+    }),
+    "rejected",
+  );
+  assert.equal(refused.code, "registration_required");
+  assert.equal(env.core.db.users.size, 0);
+});
+
+test("Session et tokens : émission, rotation, détection de réutilisation", async () => {
+  const env = await setup();
+  const { sessions, tokens } = env.core.services;
+
+  const auth = await signInWithEmail(env);
+  const session = await sessions.create({
+    userId: auth.userId,
+    context: auth.context,
+    device: { name: "test" },
+  });
+
+  const clientId = "drive" as Parameters<
+    typeof tokens.issueTokenPair
+  >[0]["clientId"];
+  const pair = await tokens.issueTokenPair({
+    session,
+    clientId,
+    scopes: ["openid"],
+  });
+  assert.equal((await tokens.verifyAccessToken(pair.accessToken)).valid, true);
+
+  const rotated = await tokens.rotateRefreshToken(pair.refreshToken);
+  assert.equal(rotated.type, "rotated");
+  if (rotated.type !== "rotated") return;
+  assert.notEqual(rotated.tokens.refreshToken, pair.refreshToken);
+
+  // L'ancien refresh token revient : vol possible -> tout est révoqué.
+  const reuse = await tokens.rotateRefreshToken(pair.refreshToken);
+  assert.deepEqual(reuse, { type: "rejected", reason: "reuse_detected" });
+
+  const afterReuse = await tokens.rotateRefreshToken(
+    rotated.tokens.refreshToken,
+  );
+  assert.equal(afterReuse.type, "rejected");
+
+  const verification = await tokens.verifyAccessToken(
+    rotated.tokens.accessToken,
+  );
+  assert.deepEqual(verification, { valid: false, reason: "session_invalid" });
+  assert.equal(env.core.events.ofType("token.reuse_detected").length, 1);
+});
+
+test("Session : expiration par inactivité et révocation globale", async () => {
+  const env = await setup();
+  const { sessions } = env.core.services;
+  const auth = await signInWithEmail(env);
+
+  const first = await sessions.create({
+    userId: auth.userId,
+    context: auth.context,
+  });
+  const second = await sessions.create({
+    userId: auth.userId,
+    context: auth.context,
+  });
+
+  const revoked = await sessions.revokeAll(auth.userId, {
+    exceptSessionId: second.id,
+  });
+  assert.equal(revoked, 1);
+  assert.equal((await sessions.validate(first.id)).valid, false);
+  assert.equal((await sessions.validate(second.id)).valid, true);
+
+  env.clock.advance(8 * 24 * 60 * MINUTE);
+  const expired = await sessions.validate(second.id);
+  assert.deepEqual(expired, { valid: false, reason: "expired" });
+});
+
+test("Mot de passe : création par enroll puis connexion", async () => {
+  const env = await setup();
+  const { auth } = env.core.services;
+  const user = await signInWithEmail(env);
+
+  await env.password.enroll(user.userId, {
+    providerInstanceId: env.passwordInstance.id,
+    identifier: EMAIL,
+    password: "correct horse battery staple",
+  });
+
+  const signIn = (identifier: string, password: string) =>
+    auth.begin({
+      providerInstanceId: env.passwordInstance.id,
+      clientId: null,
+      purpose: "sign_in",
+      userId: null,
+      input: { identifier, password },
+    });
+
+  const ok = expectType(
+    await signIn(EMAIL, "correct horse battery staple"),
+    "authenticated",
+  );
+  assert.equal(ok.userId, user.userId);
+  assert.equal(ok.isNewUser, false);
+  assert.deepEqual(ok.context.methods, ["password"]);
+
+  // Mauvais mot de passe et identifiant inconnu : même réponse (pas d'énumération).
+  const wrong = expectType(
+    await signIn(EMAIL, "mauvais mot de passe"),
+    "rejected",
+  );
+  const unknown = expectType(
+    await signIn("inconnu@example.com", "correct horse battery staple"),
+    "rejected",
+  );
+  assert.equal(wrong.code, "invalid_credentials");
+  assert.equal(unknown.code, wrong.code);
+});
+
+test("Mot de passe : l'inscription directe est refusée", async () => {
+  const env = await setup();
+  const result = expectType(
+    await env.core.services.auth.begin({
+      providerInstanceId: env.passwordInstance.id,
+      clientId: null,
+      purpose: "sign_up",
+      userId: null,
+      input: { identifier: EMAIL, password: "correct horse battery staple" },
+    }),
+    "rejected",
+  );
+  assert.equal(result.code, "enrollment_required");
+});
+
+test("Provider désactivé : la connexion ne démarre pas", async () => {
+  const env = await setup();
+  const disabled: ProviderInstance = await env.core.addProviderInstance({
+    id: "email-off",
+    type: "email-otp",
+    enabled: false,
+  });
+
+  await assert.rejects(
+    env.core.services.auth.begin({
+      providerInstanceId: disabled.id,
+      clientId: null,
+      purpose: "sign_in",
+      userId: null,
+      input: { email: EMAIL },
+    }),
+    (error: unknown) =>
+      error instanceof AuthenticationError &&
+      error.code === "provider_disabled",
+  );
+});
+
+test("Transaction : une erreur annule toutes les écritures du bloc", async () => {
+  const env = await setup();
+  const now = env.clock.now();
+  const user: User = {
+    id: "u-rollback" as UserId,
+    status: "active",
+    lastAuthenticatedAt: null,
+    disabledAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await assert.rejects(
+    env.core.unitOfWork.run(async () => {
+      await env.core.repositories.users.create(user);
+      throw new Error("boom");
+    }),
+    /boom/,
+  );
+
+  assert.equal(await env.core.repositories.users.findById(user.id), null);
+});

@@ -178,6 +178,9 @@ importers:
       '@eslint/markdown':
         specifier: ^8.0.3
         version: 8.0.3
+      '@types/node':
+        specifier: ^26.6.5
+        version: 26.6.5
       eslint:
         specifier: ^10.12.0
         version: 10.12.0(jiti@2.7.0)
@@ -200,6 +203,15 @@ importers:
         specifier: workspace:*
         version: link:../../core
     devDependencies:
+      '@authen/provider-email-otp':
+        specifier: workspace:*
+        version: link:../../providers/email-otp
+      '@authen/provider-password':
+        specifier: workspace:*
+        version: link:../../providers/password
+      '@types/node':
+        specifier: ^26.6.5
+        version: 26.6.5
       tsdown:
         specifier: ^0.15.0
         version: 0.15.12(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(typescript@5.9.3)
@@ -217,6 +229,32 @@ importers:
         version: 5.9.3
 
   packages/providers/contracts:
+    dependencies:
+      '@authen/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      tsdown:
+        specifier: ^0.15.0
+        version: 0.15.12(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
+  packages/providers/email-otp:
+    dependencies:
+      '@authen/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      tsdown:
+        specifier: ^0.15.0
+        version: 0.15.12(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
+  packages/providers/password:
     dependencies:
       '@authen/core':
         specifier: workspace:*
@@ -653,6 +691,9 @@ packages:
 
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
+
+  '@types/node@26.6.5':
+    resolution: {integrity: sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg==}
 
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==}
@@ -1439,6 +1480,9 @@ packages:
   unconfig@7.5.0:
     resolution: {integrity: sha512-oi8Qy2JV4D3UQ0PsopR28CzdQ3S/5A1zwsUwp/rosSbfhJ5z7b90bIyTwi/F7hCLD4SGcZVjDzd4XoUQcEanvA==}
 
+  undici-types@8.9.0:
+    resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
+
   unist-util-is@6.0.1:
     resolution: {integrity: sha512-LsiILbtBETkDz8I9p1dQ0uyRUWuaQzd/cuEeS1hoRSyW5E5XGmTzlwY1OrNzzakGowI9Dr/I8HVaw4hTtnxy8g==}
 
@@ -1798,6 +1842,10 @@ snapshots:
       '@types/unist': 3.0.3
 
   '@types/ms@2.1.0': {}
+
+  '@types/node@26.6.5':
+    dependencies:
+      undici-types: 8.9.0
 
   '@types/unist@3.0.3': {}
 
@@ -2777,6 +2825,8 @@ snapshots:
       jiti: 2.7.0
       quansync: 1.0.0
       unconfig-core: 7.5.0
+
+  undici-types@8.9.0: {}
 
   unist-util-is@6.0.1:
     dependencies:

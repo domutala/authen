@@ -138,8 +138,6 @@ Authen is intended to be developed openly, with a focus on interoperability, ext
 
 Contributions, design discussions, security reviews, documentation improvements, and new provider integrations will be welcome as the repository and contribution process take shape.
 
-**License:** _To be determined_
-
 ## License
 
 Authen is open-source software licensed under

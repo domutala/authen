@@ -5,6 +5,7 @@
 export type AuthenticationErrorCode =
   | "provider_not_found"
   | "provider_disabled"
+  | "provider_conflict"
   | "invalid_provider_response"
   | "transaction_not_found"
   | "transaction_not_active"
@@ -16,7 +17,8 @@ export type AuthenticationErrorCode =
   | "identity_conflict"
   | "last_identity"
   | "profile_not_found"
-  | "session_not_found";
+  | "session_not_found"
+  | "credential_not_found";
 
 /**
  * Erreur "technique ou de contrat" : l'appelant a mal utilisé le service,
