@@ -120,6 +120,16 @@ export class TokenService {
   constructor(deps: TokenServiceDeps) {
     this.d = deps;
     this.options = { ...DEFAULT_OPTIONS, ...deps.options };
+    assertNonEmpty("token.issuer", this.options.issuer);
+    assertNonEmpty("token.audience", this.options.audience);
+    assertPositiveInteger(
+      "token.accessTokenTtlSeconds",
+      this.options.accessTokenTtlSeconds,
+    );
+    assertPositiveDuration(
+      "token.refreshTokenTtlMs",
+      this.options.refreshTokenTtlMs,
+    );
   }
 
   /** Premier échange : crée une famille et renvoie access token + refresh token. */
@@ -360,4 +370,22 @@ export class TokenService {
 
 function rejected(reason: RotationRejectionReason): RotationResult {
   return { type: "rejected", reason };
+}
+
+function assertNonEmpty(name: string, value: string): void {
+  if (value.trim().length === 0) {
+    throw new RangeError(`${name} ne doit pas être vide`);
+  }
+}
+
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${name} doit être un entier strictement positif`);
+  }
+}
+
+function assertPositiveDuration(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`${name} doit être un nombre fini strictement positif`);
+  }
 }

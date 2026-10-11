@@ -142,6 +142,14 @@ export class AuthenticationService {
   constructor(deps: AuthenticationServiceDeps) {
     this.d = deps;
     this.options = { ...DEFAULT_OPTIONS, ...deps.options };
+    assertPositiveDuration(
+      "authentication.transactionTtlMs",
+      this.options.transactionTtlMs,
+    );
+    assertPositiveInteger(
+      "authentication.maxAttempts",
+      this.options.maxAttempts,
+    );
   }
 
   /** Démarre une authentification : crée la transaction puis appelle `provider.begin`. */
@@ -614,4 +622,16 @@ export class AuthenticationService {
 
 function rejected(code: string): ApplyOutcome {
   return { kind: "rejected", code };
+}
+
+function assertPositiveDuration(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`${name} doit être un nombre fini strictement positif`);
+  }
+}
+
+function assertPositiveInteger(name: string, value: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${name} doit être un entier strictement positif`);
+  }
 }

@@ -6,6 +6,7 @@ import type {
   SecurityEvent,
   TransactionRunner,
 } from "@authen/core";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import type { MemoryDatabase } from "./database.js";
 
@@ -100,12 +101,13 @@ export class MemoryChallengeStore implements ChallengeStore {
  * Transaction "tout ou rien" : si le bloc échoue, toutes les écritures faites
  * depuis le début sont annulées (restauration de la photo de la base).
  *
- * Limite : conçu pour des scénarios séquentiels. Deux transactions qui
- * s'entrelacent en parallèle pourraient s'annuler mutuellement.
+ * Les transactions concurrentes sont sérialisées, tandis que les transactions
+ * imbriquées partagent le snapshot et le rollback de la transaction externe.
  */
 export class MemoryTransactionRunner implements TransactionRunner {
   private readonly db: MemoryDatabase;
-  private depth = 0;
+  private readonly context = new AsyncLocalStorage<boolean>();
+  private tail: Promise<void> = Promise.resolve();
 
   constructor(db: MemoryDatabase) {
     this.db = db;
@@ -113,17 +115,25 @@ export class MemoryTransactionRunner implements TransactionRunner {
 
   async run<T>(work: () => Promise<T>): Promise<T> {
     // Transaction imbriquée : la transaction externe gère déjà l'annulation.
-    if (this.depth > 0) return work();
+    if (this.context.getStore()) return work();
+
+    // AsyncLocalStorage distingue une transaction imbriquée d'une transaction
+    // lancée en parallèle par une autre chaîne asynchrone.
+    const previous = this.tail;
+    let release!: () => void;
+    this.tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
 
     const snapshot = this.db.snapshot();
-    this.depth++;
     try {
-      return await work();
+      return await this.context.run(true, work);
     } catch (error) {
       this.db.restore(snapshot);
       throw error;
     } finally {
-      this.depth--;
+      release();
     }
   }
 }

@@ -85,6 +85,22 @@ export class PasswordProvider
   constructor(deps: PasswordProviderDeps) {
     this.d = deps;
     this.options = { ...DEFAULT_OPTIONS, ...deps.options };
+    if (
+      !Number.isSafeInteger(this.options.minLength) ||
+      this.options.minLength <= 0
+    ) {
+      throw new RangeError(
+        "password.minLength doit être un entier strictement positif",
+      );
+    }
+    if (
+      !Number.isSafeInteger(this.options.maxLength) ||
+      this.options.maxLength < this.options.minLength
+    ) {
+      throw new RangeError(
+        "password.maxLength doit être un entier supérieur ou égal à minLength",
+      );
+    }
   }
 
   async begin(context: ProviderContext, input: unknown): Promise<AuthStep> {

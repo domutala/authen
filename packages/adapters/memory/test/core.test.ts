@@ -420,3 +420,115 @@ test("Transaction : une erreur annule toutes les écritures du bloc", async () =
 
   assert.equal(await env.core.repositories.users.findById(user.id), null);
 });
+
+test("Configuration : les valeurs dangereuses sont refusées au démarrage", () => {
+  assert.throws(
+    () => createMemoryCore({ authentication: { maxAttempts: 0 } }),
+    /authentication\.maxAttempts/,
+  );
+  assert.throws(
+    () => createMemoryCore({ session: { idleTimeoutMs: Number.NaN } }),
+    /session\.idleTimeoutMs/,
+  );
+  assert.throws(
+    () => createMemoryCore({ token: { accessTokenTtlSeconds: 0 } }),
+    /token\.accessTokenTtlSeconds/,
+  );
+  assert.throws(
+    () => createMemoryCore({ security: { stepUpMaxAgeMs: -1 } }),
+    /security\.stepUpMaxAgeMs/,
+  );
+  assert.throws(() => createMemoryCore({ issuer: "   " }), /token\.issuer/);
+
+  const core = createMemoryCore();
+  assert.throws(
+    () =>
+      createEmailOtpProvider({
+        challenges: core.challenges,
+        digester: core.digester,
+        random: core.random,
+        clock: core.clock,
+        sender: { async send() {} },
+        options: { codeLength: 3 },
+      }),
+    /emailOtp\.codeLength/,
+  );
+  assert.throws(
+    () =>
+      createPasswordProvider({
+        identities: core.repositories.identities,
+        identityService: core.services.identities,
+        credentials: core.repositories.credentials,
+        hasher: core.hasher,
+        ids: core.ids,
+        clock: core.clock,
+        unitOfWork: core.unitOfWork,
+        options: { minLength: 20, maxLength: 10 },
+      }),
+    /password\.maxLength/,
+  );
+});
+
+test("Concurrence OTP : un challenge ne peut authentifier qu'une requête", async () => {
+  const env = await setup();
+  const started = expectType(
+    await env.core.services.auth.begin({
+      providerInstanceId: env.emailInstance.id,
+      clientId: null,
+      purpose: "sign_in",
+      userId: null,
+      input: { email: EMAIL },
+    }),
+    "challenge",
+  );
+  const code = env.lastCode();
+
+  const results = await Promise.all([
+    env.core.services.auth.continue(started.transactionId, { code }),
+    env.core.services.auth.continue(started.transactionId, { code }),
+  ]);
+
+  assert.equal(
+    results.filter((result) => result.type === "authenticated").length,
+    1,
+  );
+  assert.equal(results.filter((result) => result.type === "rejected").length, 1);
+  assert.equal(env.core.db.users.size, 1);
+  assert.equal(env.core.db.identities.size, 1);
+});
+
+test("Concurrence refresh token : une seule rotation gagne", async () => {
+  const env = await setup();
+  const auth = await signInWithEmail(env);
+  const session = await env.core.services.sessions.create({
+    userId: auth.userId,
+    context: auth.context,
+  });
+  const clientId = "drive" as Parameters<
+    typeof env.core.services.tokens.issueTokenPair
+  >[0]["clientId"];
+  const pair = await env.core.services.tokens.issueTokenPair({
+    session,
+    clientId,
+    scopes: ["openid"],
+  });
+
+  const results = await Promise.all([
+    env.core.services.tokens.rotateRefreshToken(pair.refreshToken),
+    env.core.services.tokens.rotateRefreshToken(pair.refreshToken),
+  ]);
+
+  assert.equal(results.filter((result) => result.type === "rotated").length, 1);
+  assert.equal(
+    results.filter(
+      (result) =>
+        result.type === "rejected" && result.reason === "reuse_detected",
+    ).length,
+    1,
+  );
+  assert.equal(env.core.events.ofType("token.reuse_detected").length, 1);
+  assert.deepEqual(await env.core.services.sessions.validate(session.id), {
+    valid: false,
+    reason: "revoked",
+  });
+});

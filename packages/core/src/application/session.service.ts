@@ -54,6 +54,19 @@ export class SessionService {
   constructor(deps: SessionServiceDeps) {
     this.d = deps;
     this.options = { ...DEFAULT_OPTIONS, ...deps.options };
+    assertPositiveDuration("session.idleTimeoutMs", this.options.idleTimeoutMs);
+    assertPositiveDuration(
+      "session.absoluteTimeoutMs",
+      this.options.absoluteTimeoutMs,
+    );
+    if (
+      !Number.isFinite(this.options.touchIntervalMs) ||
+      this.options.touchIntervalMs < 0
+    ) {
+      throw new RangeError(
+        "session.touchIntervalMs doit être un nombre fini positif ou nul",
+      );
+    }
   }
 
   /** Crée une session après une authentification réussie. */
@@ -207,5 +220,11 @@ export class SessionService {
       occurredAt: this.d.clock.now(),
       metadata,
     });
+  }
+}
+
+function assertPositiveDuration(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`${name} doit être un nombre fini strictement positif`);
   }
 }

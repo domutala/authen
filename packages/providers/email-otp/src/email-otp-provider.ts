@@ -63,6 +63,23 @@ export class EmailOtpProvider implements AuthenticationProvider {
   constructor(deps: EmailOtpProviderDeps) {
     this.d = deps;
     this.options = { ...DEFAULT_OPTIONS, ...deps.options };
+    if (
+      !Number.isSafeInteger(this.options.codeLength) ||
+      this.options.codeLength < 4 ||
+      this.options.codeLength > 12
+    ) {
+      throw new RangeError(
+        "emailOtp.codeLength doit être un entier entre 4 et 12",
+      );
+    }
+    if (
+      !Number.isFinite(this.options.codeTtlMs) ||
+      this.options.codeTtlMs <= 0
+    ) {
+      throw new RangeError(
+        "emailOtp.codeTtlMs doit être un nombre fini strictement positif",
+      );
+    }
   }
 
   async begin(context: ProviderContext, input: unknown): Promise<AuthStep> {

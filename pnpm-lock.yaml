@@ -209,9 +209,6 @@ importers:
       '@authen/provider-password':
         specifier: workspace:*
         version: link:../../providers/password
-      '@types/node':
-        specifier: ^26.6.5
-        version: 26.6.5
       tsdown:
         specifier: ^0.15.0
         version: 0.15.12(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(typescript@5.9.3)

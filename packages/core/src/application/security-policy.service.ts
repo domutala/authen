@@ -27,6 +27,14 @@ export class SecurityPolicyService {
 
   constructor(options: Partial<SecurityPolicyOptions> = {}) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
+    if (
+      !Number.isFinite(this.options.stepUpMaxAgeMs) ||
+      this.options.stepUpMaxAgeMs < 0
+    ) {
+      throw new RangeError(
+        "security.stepUpMaxAgeMs doit être un nombre fini positif ou nul",
+      );
+    }
   }
 
   /** Seul un compte actif peut se connecter. */

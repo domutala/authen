@@ -25,7 +25,6 @@
     "@authen/core": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
     "@authen/provider-password": "workspace:*",
     "@authen/provider-email-otp": "workspace:*",
     "tsdown": "^0.15.0",
