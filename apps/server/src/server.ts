@@ -19,8 +19,9 @@ import Fastify, {
   type FastifyRequest,
 } from "fastify";
 
-import { RsaIdTokenSigner } from "./id-token-signer.js";
 import { registerEnv } from "./env.js";
+import { RateLimiter } from "./rate-limiter.js";
+import { safeReturnTo } from "./return-to.js";
 import { createRuntime } from "./runtime.js";
 import type { PinoLoggerOptions } from "fastify/types/logger.js";
 
@@ -33,6 +34,12 @@ export interface ServerOptions {
   secureCookies?: boolean;
   /** Surcharge `DATABASE_URL` ; `null` force le stockage mémoire. */
   databaseUrl?: string | null;
+  /** Limites de débit (par fenêtre de 15 min pour l'IP, 10 min pour l'email). */
+  rateLimits?: Partial<{
+    startPerIp: number;
+    startPerEmail: number;
+    verifyPerIp: number;
+  }>;
 }
 
 export async function buildServer(
@@ -57,6 +64,8 @@ export async function buildServer(
 
   const app = Fastify({
     logger: envToLogger[process.env.NODE_ENV ?? "development"] ?? true,
+    // Derrière un proxy : l'IP vient de X-Forwarded-For (sinon elle serait falsifiable).
+    trustProxy: process.env.AUTHEN_TRUST_PROXY === "true",
   });
   await registerEnv(app);
 
@@ -84,6 +93,7 @@ export async function buildServer(
     issuer,
     databaseUrl,
     signingSecret: app.envs.AUTHEN_SIGNING_SECRET,
+    keyRotationDays: app.envs.AUTHEN_KEY_ROTATION_DAYS,
     events,
   });
   app.addHook("onClose", async () => runtime.close());
@@ -125,14 +135,18 @@ export async function buildServer(
       },
       async required(request) {
         const target = new URL("/login", issuer);
-        target.searchParams.set("return_to", request.url);
+        const current = new URL(request.url);
+        target.searchParams.set(
+          "return_to",
+          `${current.pathname}${current.search}`,
+        );
         return Response.redirect(target, 302);
       },
     },
     sessions: core.services.sessions,
     tokens: core.services.tokens,
     profiles: core.services.profiles,
-    idTokens: new RsaIdTokenSigner(),
+    idTokens: core.idTokens,
     random: core.random,
     digester: core.digester,
     clock: core.clock,
@@ -150,14 +164,39 @@ export async function buildServer(
 
   app.get("/health", async () => ({ status: "ok" }));
 
+  const limit = options.rateLimits ?? {};
+  const limiter = (max: number, windowMs: number) =>
+    new RateLimiter({
+      limit: max,
+      windowMs,
+      now: () => core.clock.now().getTime(),
+    });
+  const startByIp = limiter(limit.startPerIp ?? 10, 15 * 60_000);
+  const startByEmail = limiter(limit.startPerEmail ?? 3, 10 * 60_000);
+  const verifyByIp = limiter(limit.verifyPerIp ?? 30, 15 * 60_000);
+
+  const tooMany = (reply: FastifyReply, retryAfterSeconds: number) =>
+    reply
+      .header("retry-after", String(retryAfterSeconds))
+      .code(429)
+      .send({ error: "rate_limited", retryAfterSeconds });
+
   app.get("/login", async (request) => ({
     message: "POST /auth/email/start puis /auth/email/verify",
-    returnTo: queryValue(request.query, "return_to"),
+    returnTo: safeReturnTo(queryValue(request.query, "return_to"), issuer),
   }));
 
   app.post("/auth/email/start", async (request, reply) => {
     const emailAddress = bodyValue(request.body, "email");
     if (!emailAddress) return reply.code(400).send({ error: "email_required" });
+
+    // Limite par IP puis par adresse : empêche d'inonder une boîte mail d'OTP.
+    for (const check of [
+      startByIp.hit(request.ip),
+      startByEmail.hit(emailAddress.trim().toLowerCase()),
+    ]) {
+      if (!check.allowed) return tooMany(reply, check.retryAfterSeconds);
+    }
 
     const result = await core.services.auth.begin({
       providerInstanceId: email.id,
@@ -178,6 +217,10 @@ export async function buildServer(
       return reply.code(400).send({ error: "invalid_request" });
     }
 
+    const verifyLimit = verifyByIp.hit(request.ip);
+    if (!verifyLimit.allowed)
+      return tooMany(reply, verifyLimit.retryAfterSeconds);
+
     const result = await core.services.auth.continue(
       transactionId as TransactionId,
       { code },
@@ -197,7 +240,12 @@ export async function buildServer(
       path: "/",
     });
 
-    return { userId: result.userId, sessionId: session.id };
+    return {
+      userId: result.userId,
+      sessionId: session.id,
+      // À suivre côté client pour reprendre le flux /authorize interrompu.
+      returnTo: safeReturnTo(bodyValue(request.body, "return_to"), issuer),
+    };
   });
 
   for (const path of [

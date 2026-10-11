@@ -11,6 +11,8 @@ declare module "fastify" {
 
       DATABASE_URL?: string;
       AUTHEN_SIGNING_SECRET?: string;
+      AUTHEN_KEY_ROTATION_DAYS?: number;
+      AUTHEN_TRUST_PROXY: boolean;
 
       OIDC_CLIENT_ID?: string;
       OIDC_REDIRECT_URI?: string;
@@ -39,6 +41,8 @@ export async function registerEnv(app: FastifyInstance) {
 
         DATABASE_URL: { type: "string" },
         AUTHEN_SIGNING_SECRET: { type: "string" },
+        AUTHEN_KEY_ROTATION_DAYS: { type: "number" },
+        AUTHEN_TRUST_PROXY: { type: "boolean", default: false },
       },
     },
   });

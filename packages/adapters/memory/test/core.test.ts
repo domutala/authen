@@ -581,7 +581,10 @@ test("Concurrence OTP : un challenge ne peut authentifier qu'une requête", asyn
     results.filter((result) => result.type === "authenticated").length,
     1,
   );
-  assert.equal(results.filter((result) => result.type === "rejected").length, 1);
+  assert.equal(
+    results.filter((result) => result.type === "rejected").length,
+    1,
+  );
   assert.equal(env.core.db.users.size, 1);
   assert.equal(env.core.db.identities.size, 1);
 });
@@ -718,4 +721,33 @@ test("Transactions concurrentes : aucun état partiel n'est observable", async (
   const [, observed] = await Promise.all([first, observer]);
   assert.ok(observed.first);
   assert.ok(observed.second);
+});
+
+test("Refresh token : un autre client ne peut pas consommer le token", async () => {
+  const env = await setup();
+  const { sessions, tokens } = env.core.services;
+  const auth = await signInWithEmail(env);
+  const session = await sessions.create({
+    userId: auth.userId,
+    context: auth.context,
+  });
+
+  type ClientId = Parameters<typeof tokens.issueTokenPair>[0]["clientId"];
+  const owner = "owner" as ClientId;
+  const pair = await tokens.issueTokenPair({
+    session,
+    clientId: owner,
+    scopes: ["openid"],
+  });
+
+  const stolen = await tokens.rotateRefreshToken(pair.refreshToken, {
+    clientId: "other" as ClientId,
+  });
+  assert.deepEqual(stolen, { type: "rejected", reason: "invalid_token" });
+
+  // Le token n'a pas été consommé : son propriétaire peut toujours l'utiliser.
+  const rotated = await tokens.rotateRefreshToken(pair.refreshToken, {
+    clientId: owner,
+  });
+  assert.equal(rotated.type, "rotated");
 });

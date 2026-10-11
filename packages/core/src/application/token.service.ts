@@ -204,7 +204,10 @@ export class TokenService {
    * L'ancien token est consommé : s'il est présenté une seconde fois,
    * c'est un signe de vol possible et toute la famille est révoquée.
    */
-  async rotateRefreshToken(rawToken: string): Promise<RotationResult> {
+  async rotateRefreshToken(
+    rawToken: string,
+    expected: { clientId?: ClientId } = {},
+  ): Promise<RotationResult> {
     const now = this.d.clock.now();
 
     const tokenHash = await this.d.digester.digest(rawToken);
@@ -213,6 +216,12 @@ export class TokenService {
 
     const family = await this.d.families.findById(record.familyId);
     if (!family) return rejected("invalid_token");
+
+    // Le token appartient à un autre client : refus AVANT toute consommation,
+    // sinon un client pourrait griller le token d'un autre.
+    if (expected.clientId && family.clientId !== expected.clientId) {
+      return rejected("invalid_token");
+    }
 
     if (family.revokedAt) return rejected("revoked");
 
@@ -268,7 +277,10 @@ export class TokenService {
   }
 
   /** Révoque une famille : plus aucun de ses refresh tokens n'est utilisable. */
-  async revokeFamily(familyId: TokenFamilyId, reason = "revoked"): Promise<void> {
+  async revokeFamily(
+    familyId: TokenFamilyId,
+    reason = "revoked",
+  ): Promise<void> {
     const family = await this.d.families.findById(familyId);
     if (!family || family.revokedAt) return;
 
@@ -280,7 +292,10 @@ export class TokenService {
   }
 
   /** Révoque toutes les familles d'une session (ex. à la déconnexion). */
-  async revokeBySession(sessionId: SessionId, reason = "session_revoked"): Promise<void> {
+  async revokeBySession(
+    sessionId: SessionId,
+    reason = "session_revoked",
+  ): Promise<void> {
     const families = await this.d.families.findBySessionId(sessionId);
     for (const family of families) {
       await this.revokeFamily(family.id, reason);
@@ -386,6 +401,8 @@ function assertPositiveInteger(name: string, value: number): void {
 
 function assertPositiveDuration(name: string, value: number): void {
   if (!Number.isFinite(value) || value <= 0) {
-    throw new RangeError(`${name} doit être un nombre fini strictement positif`);
+    throw new RangeError(
+      `${name} doit être un nombre fini strictement positif`,
+    );
   }
 }

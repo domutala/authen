@@ -14,6 +14,7 @@ import {
   type ProviderInstance,
   type SecurityPolicyOptions,
   type SessionOptions,
+  type TokenSigner,
   type TokenServiceOptions,
 } from "@authen/core";
 import {
@@ -49,6 +50,8 @@ export interface MemoryCoreOptions {
   audience?: string;
   /** Secret de signature des access tokens (aléatoire par défaut). */
   signingSecret?: string;
+  /** Signer personnalisé (remplace le signer HMAC de développement). */
+  signer?: TokenSigner;
   security?: Partial<SecurityPolicyOptions>;
   authentication?: Partial<AuthenticationOptions>;
   session?: Partial<SessionOptions>;
@@ -83,11 +86,13 @@ export function createMemoryCore(options: MemoryCoreOptions = {}) {
 
   const issuer = options.issuer ?? "https://authen.test";
   const audience = options.audience ?? "authen-api";
-  const signer = new HmacTokenSigner({
-    secret: options.signingSecret ?? random.token(32),
-    issuer,
-    clock,
-  });
+  const signer =
+    options.signer ??
+    new HmacTokenSigner({
+      secret: options.signingSecret ?? random.token(32),
+      issuer,
+      clock,
+    });
 
   const repositories = {
     users: new MemoryUserRepository(db),

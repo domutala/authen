@@ -1,13 +1,15 @@
 import { createMemoryCore } from "@authen/adapter-memory";
 import {
-  HmacTokenSigner,
   NodeSecureRandom,
   ScryptSecretHasher,
   Sha256TokenDigester,
   SystemClock,
   UuidIdGenerator,
 } from "@authen/adapter-memory";
-import { createPostgresAdapter, migratePostgres } from "@authen/adapter-postgres";
+import {
+  createPostgresAdapter,
+  migratePostgres,
+} from "@authen/adapter-postgres";
 import {
   AuthenticationService,
   CredentialEnrollmentService,
@@ -31,10 +33,19 @@ import {
   MemoryAuthorizationCodeStore,
   MemoryOAuthClientRegistry,
   type AuthorizationCodeStore,
+  type OidcIdTokenSigner,
   type OAuthClient,
   type OAuthClientRegistry,
 } from "@authen/protocol-oauth-oidc";
+import { randomBytes } from "node:crypto";
 import pg from "pg";
+import {
+  KeyRing,
+  MemorySigningKeyStore,
+  PostgresSigningKeyStore,
+  RingAccessTokenSigner,
+  RingIdTokenSigner,
+} from "./keys/index.js";
 import {
   PostgresAuthorizationCodeStore,
   PostgresOAuthClientRegistry,
@@ -43,7 +54,10 @@ import {
 export interface RuntimeOptions {
   issuer: string;
   databaseUrl?: string | undefined;
+  /** Secret qui chiffre les clés de signature en base (requis avec Postgres). */
   signingSecret?: string | undefined;
+  /** Rotation automatique de la clé de signature, en jours (défaut 90). */
+  keyRotationDays?: number | undefined;
   events: EventPublisher;
 }
 
@@ -54,6 +68,8 @@ export interface Runtime {
   random: SecureRandom;
   digester: TokenDigester;
   challenges: ChallengeStore;
+  idTokens: OidcIdTokenSigner;
+  keys: KeyRing;
   services: ReturnType<typeof createMemoryCore>["services"];
   clients: OAuthClientRegistry;
   codes: AuthorizationCodeStore;
@@ -72,14 +88,25 @@ const MIN_SECRET_LENGTH = 32;
 export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
   return options.databaseUrl
     ? createPostgresRuntime(options, options.databaseUrl)
-    : createMemoryRuntime(options);
+    : await createMemoryRuntime(options);
 }
 
-function createMemoryRuntime(options: RuntimeOptions): Runtime {
+async function createMemoryRuntime(options: RuntimeOptions): Promise<Runtime> {
+  const clock = new SystemClock();
+  const keys = new KeyRing({
+    store: new MemorySigningKeyStore(),
+    clock,
+    encryptionSecret:
+      options.signingSecret ?? randomBytes(32).toString("base64url"),
+    ...rotation(options),
+  });
+  await keys.init();
+
   const core = createMemoryCore({
+    clock,
     issuer: options.issuer,
     audience: `${options.issuer}/api`,
-    ...(options.signingSecret ? { signingSecret: options.signingSecret } : {}),
+    signer: new RingAccessTokenSigner(keys, options.issuer),
   });
   const clients = new MemoryOAuthClientRegistry();
 
@@ -89,6 +116,8 @@ function createMemoryRuntime(options: RuntimeOptions): Runtime {
     random: core.random,
     digester: core.digester,
     challenges: core.challenges,
+    idTokens: new RingIdTokenSigner(keys),
+    keys,
     services: core.services,
     clients,
     codes: new MemoryAuthorizationCodeStore(core.clock),
@@ -100,11 +129,17 @@ function createMemoryRuntime(options: RuntimeOptions): Runtime {
   };
 }
 
+function rotation(options: RuntimeOptions) {
+  return options.keyRotationDays
+    ? { rotationIntervalMs: options.keyRotationDays * 24 * 60 * 60 * 1000 }
+    : {};
+}
+
 async function createPostgresRuntime(
   options: RuntimeOptions,
   databaseUrl: string,
 ): Promise<Runtime> {
-  // Sans secret stable, les access tokens émis avant un redémarrage deviendraient invalides.
+  // Sans secret stable, les clés de signature chiffrées en base seraient illisibles au redémarrage.
   if (
     !options.signingSecret ||
     options.signingSecret.length < MIN_SECRET_LENGTH
@@ -124,11 +159,14 @@ async function createPostgresRuntime(
     const ids = new UuidIdGenerator();
     const random = new NodeSecureRandom();
     const digester = new Sha256TokenDigester();
-    const signer = new HmacTokenSigner({
-      secret: options.signingSecret,
-      issuer: options.issuer,
+    const keys = new KeyRing({
+      store: new PostgresSigningKeyStore(adapter.database),
       clock,
+      encryptionSecret: options.signingSecret,
+      ...rotation(options),
     });
+    await keys.init();
+    const signer = new RingAccessTokenSigner(keys, options.issuer);
     const events = options.events;
 
     const users = new UserService({ users: repositories.users, ids, clock });
@@ -198,6 +236,8 @@ async function createPostgresRuntime(
       random,
       digester,
       challenges,
+      idTokens: new RingIdTokenSigner(keys),
+      keys,
       services: {
         users,
         profiles,

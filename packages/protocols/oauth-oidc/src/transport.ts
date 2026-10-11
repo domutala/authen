@@ -74,7 +74,7 @@ export class OidcTransport {
       userinfo_endpoint: `${this.issuer}/userinfo`,
       jwks_uri: `${this.issuer}/jwks.json`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
       subject_types_supported: ["public"],
       id_token_signing_alg_values_supported: [this.d.idTokens.algorithm],
       code_challenge_methods_supported: ["S256"],
@@ -127,7 +127,9 @@ export class OidcTransport {
 
   private async token(request: Request): Promise<Response> {
     const form = await request.formData();
-    if (form.get("grant_type") !== "authorization_code")
+    const grantType = form.get("grant_type");
+    if (grantType === "refresh_token") return this.refresh(form);
+    if (grantType !== "authorization_code")
       return oauthError("unsupported_grant_type", 400);
     const code = string(form.get("code"));
     const verifier = string(form.get("code_verifier"));
@@ -171,6 +173,31 @@ export class OidcTransport {
       expires_in: tokens.expiresIn,
       id_token: idToken,
       scope: record.scopes.join(" "),
+    });
+  }
+
+  /**
+   * Renouvellement : rotation du refresh token (usage unique, détection de
+   * réutilisation dans le core). Le client doit être celui du token d'origine ;
+   * le paramètre `scope` est ignoré : les scopes restent ceux de l'autorisation.
+   */
+  private async refresh(form: FormData): Promise<Response> {
+    const refreshToken = string(form.get("refresh_token"));
+    const clientId = string(form.get("client_id")) as ClientId | null;
+    if (!refreshToken || !clientId) return oauthError("invalid_request", 400);
+    if (!(await this.d.clients.findById(clientId)))
+      return oauthError("invalid_client", 401);
+
+    const result = await this.d.tokens.rotateRefreshToken(refreshToken, {
+      clientId,
+    });
+    if (result.type !== "rotated") return oauthError("invalid_grant", 400);
+
+    return json({
+      access_token: result.tokens.accessToken,
+      refresh_token: result.tokens.refreshToken,
+      token_type: "Bearer",
+      expires_in: result.tokens.expiresIn,
     });
   }
 

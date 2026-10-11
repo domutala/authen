@@ -257,6 +257,17 @@ export const authorizationCodes = pgTable(
   (t) => [index("authen_authorization_codes_expires_at_idx").on(t.expiresAt)],
 );
 
+export const signingKeys = pgTable("authen_signing_keys", {
+  kid: text().primaryKey(),
+  algorithm: text().notNull(),
+  publicJwk: jsonb("public_jwk").$type<Record<string, unknown>>().notNull(),
+  privateKeyEncrypted: text("private_key_encrypted").notNull(),
+  status: text().$type<"active" | "retiring">().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+});
+
 export const schema = {
   users,
   providerInstances,
@@ -270,4 +281,5 @@ export const schema = {
   challenges,
   oauthClients,
   authorizationCodes,
+  signingKeys,
 };

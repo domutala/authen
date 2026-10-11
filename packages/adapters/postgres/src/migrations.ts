@@ -3,7 +3,11 @@ import { readFile } from "node:fs/promises";
 import type { PostgresDatabase } from "./database.js";
 
 /** Migrations SQL, appliquées dans l'ordre. Ne jamais modifier une migration déjà livrée. */
-const MIGRATIONS = ["001_initial", "002_server_stores"] as const;
+const MIGRATIONS = [
+  "001_initial",
+  "002_server_stores",
+  "003_signing_keys",
+] as const;
 
 /** Applique les migrations manquantes ; chacune dans sa propre transaction. */
 export async function migratePostgres(
