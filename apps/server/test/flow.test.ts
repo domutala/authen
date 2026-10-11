@@ -216,3 +216,88 @@ test("RateLimiter : la fenêtre se rouvre après expiration", () => {
   now = 1001;
   assert.equal(limiter.hit("k").allowed, true);
 });
+
+test("Production : refuse de démarrer sans expéditeur OTP explicite", async () => {
+  await assert.rejects(
+    buildServer({ environment: "production", databaseUrl: null }),
+    /OtpSender explicite/,
+  );
+});
+
+test("Configuration : refuse un issuer avec chemin et une rotation invalide", async () => {
+  const sender = { async send() {} };
+  await assert.rejects(
+    buildServer({ issuer: "https://identity.test/auth", databaseUrl: null, otpSender: sender }),
+    /ne doit contenir ni chemin/,
+  );
+  const previous = process.env.AUTHEN_KEY_ROTATION_DAYS;
+  process.env.AUTHEN_KEY_ROTATION_DAYS = "-1";
+  try {
+    await assert.rejects(
+      buildServer({ issuer: ISSUER, databaseUrl: null, otpSender: sender }),
+      /entier strictement positif/,
+    );
+  } finally {
+    if (previous === undefined) delete process.env.AUTHEN_KEY_ROTATION_DAYS;
+    else process.env.AUTHEN_KEY_ROTATION_DAYS = previous;
+  }
+});
+
+test("Configuration : AUTHEN_TRUST_PROXY pilote bien request.ip", async () => {
+  const previous = process.env.AUTHEN_TRUST_PROXY;
+  process.env.AUTHEN_TRUST_PROXY = "true";
+  const messages: OtpMessage[] = [];
+  let app: Awaited<ReturnType<typeof buildServer>> | undefined;
+  try {
+    app = await buildServer({
+      issuer: ISSUER,
+      databaseUrl: null,
+      rateLimits: { startPerIp: 1, startPerEmail: 10 },
+      otpSender: { async send(message) { messages.push(message); } },
+    });
+    const send = (ip: string, email: string) => app!.inject({
+      method: "POST",
+      url: "/auth/email/start",
+      headers: { "x-forwarded-for": ip },
+      payload: { email },
+    });
+    assert.equal((await send("198.51.100.1", "a@example.com")).statusCode, 202);
+    assert.equal((await send("198.51.100.2", "b@example.com")).statusCode, 202);
+  } finally {
+    await app?.close();
+    if (previous === undefined) delete process.env.AUTHEN_TRUST_PROXY;
+    else process.env.AUTHEN_TRUST_PROXY = previous;
+  }
+});
+
+test("OTP concurrent : une réussite ne peut pas être écrasée par le second essai", async () => {
+  const { app, messages } = await start({ verifyPerIp: 100 });
+  try {
+    const started = await app.inject({
+      method: "POST",
+      url: "/auth/email/start",
+      payload: { email: "race@example.com" },
+    });
+    const payload = {
+      transactionId: started.json().transactionId,
+      code: messages[0]!.code,
+    };
+    const results = await Promise.all([
+      app.inject({ method: "POST", url: "/auth/email/verify", payload }),
+      app.inject({ method: "POST", url: "/auth/email/verify", payload }),
+    ]);
+    assert.equal(results.filter((r) => r.statusCode === 200).length, 1);
+    const winner = results.find((r) => r.statusCode === 200)!;
+    const cookie = String(winner.headers["set-cookie"]).split(";")[0]!;
+    const { challenge } = pkcePair();
+    const authorization = await app.inject({
+      method: "GET",
+      url: authorizeUrl(challenge),
+      headers: { cookie },
+    });
+    assert.equal(authorization.statusCode, 302);
+    assert.match(String(authorization.headers.location), /callback\?code=/);
+  } finally {
+    await app.close();
+  }
+});

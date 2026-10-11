@@ -217,12 +217,12 @@ importers:
       '@fastify/cookie':
         specifier: ^11.0.2
         version: 11.1.3
-      '@fastify/env':
-        specifier: ^7.0.1
-        version: 7.0.1
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@types/pg@8.23.1)(pg@8.23.1)
+      env-schema:
+        specifier: ^8.0.0
+        version: 8.0.0
       fastify:
         specifier: ^5.6.1
         version: 5.12.5
@@ -605,9 +605,6 @@ packages:
 
   '@fastify/cookie@11.1.3':
     resolution: {integrity: sha512-RBhlMNsmSG6C5KGiTkhSXBF75xIrUMSytDDBcpnVewhJ8XVYnJTu+SV6FYKXClIRsBuRjOfKbBSULvnPD3X/mg==}
-
-  '@fastify/env@7.0.1':
-    resolution: {integrity: sha512-LSYu+03Y6shfd2blr12X3vbyEH0yt7ZmTTCz83r44FQtP+BA90xLsxIpdUY0bJ8hgEgtyJ7SDpAU1TDiiIW1kw==}
 
   '@fastify/error@4.2.0':
     resolution: {integrity: sha512-RSo3sVDXfHskiBZKBPRgnQTtIqpi/7zhJOEmAxCiBcM7d0uwdGdxLlsCaLzGs8v8NnxIRlfG0N51p5yFaOentQ==}
@@ -2174,11 +2171,6 @@ snapshots:
   '@fastify/cookie@11.1.3':
     dependencies:
       cookie: 2.0.1
-      fastify-plugin: 6.0.0
-
-  '@fastify/env@7.0.1':
-    dependencies:
-      env-schema: 8.0.0
       fastify-plugin: 6.0.0
 
   '@fastify/error@4.2.0': {}

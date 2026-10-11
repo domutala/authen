@@ -18,7 +18,7 @@
     "drizzle-orm": "^0.45.4",
     "@authen/provider-email-otp": "workspace:*",
     "@fastify/cookie": "^11.0.2",
-    "@fastify/env": "^7.0.1",
+    "env-schema": "^8.0.0",
     "fastify": "^5.6.1",
     "pg": "^8.23.1",
     "pino-pretty": "^13.2.0"

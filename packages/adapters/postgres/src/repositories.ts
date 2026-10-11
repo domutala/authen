@@ -268,15 +268,25 @@ export class PostgresTransactionRepository
       this.db.executor.insert(authenticationTransactions).values(value),
     );
   }
-  async update(value: AuthenticationTransaction) {
+  async update(
+    value: AuthenticationTransaction,
+    expected: Pick<AuthenticationTransaction, "status" | "attempts" | "updatedAt">,
+  ) {
     const rows = await this.write(() =>
       this.db.executor
         .update(authenticationTransactions)
         .set(value)
-        .where(eq(authenticationTransactions.id, value.id))
+        .where(
+          and(
+            eq(authenticationTransactions.id, value.id),
+            eq(authenticationTransactions.status, expected.status),
+            eq(authenticationTransactions.attempts, expected.attempts),
+            eq(authenticationTransactions.updatedAt, expected.updatedAt),
+          ),
+        )
         .returning({ id: authenticationTransactions.id }),
     );
-    this.assertUpdated(rows);
+    return rows.length === 1;
   }
 }
 

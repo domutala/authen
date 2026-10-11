@@ -9,5 +9,8 @@ export interface TransactionRepository {
    * L'implémentation devrait être optimiste (ex. `WHERE updated_at = ancienne valeur`)
    * pour éviter que deux `continue()` simultanés écrasent le même état.
    */
-  update(transaction: AuthenticationTransaction): Promise<void>;
+  update(
+    transaction: AuthenticationTransaction,
+    expected: Pick<AuthenticationTransaction, "status" | "attempts" | "updatedAt">,
+  ): Promise<boolean>;
 }

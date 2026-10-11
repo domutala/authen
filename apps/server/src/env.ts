@@ -1,29 +1,26 @@
-import type { FastifyInstance } from "fastify";
-import fastifyEnv from "@fastify/env";
+import envSchema from "env-schema";
+
+export interface ServerEnvironment {
+  HOST: string;
+  PORT: number;
+  AUTHEN_ISSUER?: string;
+  DATABASE_URL?: string;
+  AUTHEN_SIGNING_SECRET?: string;
+  AUTHEN_KEY_ROTATION_DAYS?: number;
+  AUTHEN_TRUST_PROXY: boolean;
+  OIDC_CLIENT_ID?: string;
+  OIDC_REDIRECT_URI?: string;
+}
 
 declare module "fastify" {
   interface FastifyInstance {
-    envs: {
-      HOST: string;
-      PORT: number;
-
-      AUTHEN_ISSUER?: string;
-
-      DATABASE_URL?: string;
-      AUTHEN_SIGNING_SECRET?: string;
-      AUTHEN_KEY_ROTATION_DAYS?: number;
-      AUTHEN_TRUST_PROXY: boolean;
-
-      OIDC_CLIENT_ID?: string;
-      OIDC_REDIRECT_URI?: string;
-    };
+    envs: ServerEnvironment;
   }
 }
 
-export async function registerEnv(app: FastifyInstance) {
-  await app.register(fastifyEnv, {
+export function loadEnvironment(): ServerEnvironment {
+  return envSchema<ServerEnvironment>({
     dotenv: true,
-    confKey: "envs",
     schema: {
       type: "object",
       required: ["PORT", "HOST"],

@@ -7,6 +7,7 @@ test("serveur Fastify : santé, discovery et session email OTP", async () => {
   const messages: OtpMessage[] = [];
   const app = await buildServer({
     issuer: "http://identity.test",
+    databaseUrl: null,
     secureCookies: false,
     otpSender: {
       async send(message) {

@@ -48,6 +48,12 @@ export class KeyRing {
       modulusLength: 2048,
       ...options,
     };
+    positiveDuration("rotationIntervalMs", this.o.rotationIntervalMs);
+    positiveDuration("overlapMs", this.o.overlapMs);
+    positiveDuration("cacheMs", this.o.cacheMs);
+    if (!Number.isSafeInteger(this.o.modulusLength) || this.o.modulusLength < 2048) {
+      throw new RangeError("modulusLength doit être un entier supérieur ou égal à 2048");
+    }
   }
 
   get clock(): Clock {
@@ -190,5 +196,11 @@ export class KeyRing {
       });
     this.inflight = run;
     return run;
+  }
+}
+
+function positiveDuration(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`${name} doit être un nombre fini strictement positif`);
   }
 }

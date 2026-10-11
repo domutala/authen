@@ -13,13 +13,25 @@ export class MemorySigningKeyStore implements SigningKeyStore {
   private tail: Promise<unknown> = Promise.resolve();
 
   transaction<T>(work: (tx: SigningKeyTransaction) => Promise<T>): Promise<T> {
+    let snapshot: Map<string, SigningKeyRecord>;
     const tx: SigningKeyTransaction = {
       list: async () => [...this.keys.values()].map((r) => structuredClone(r)),
       insert: async (r) => void this.keys.set(r.kid, structuredClone(r)),
       update: async (r) => void this.keys.set(r.kid, structuredClone(r)),
       delete: async (kid) => void this.keys.delete(kid),
     };
-    const run = this.tail.then(() => work(tx));
+    const run = this.tail.then(async () => {
+      snapshot = new Map(
+        [...this.keys].map(([kid, record]) => [kid, structuredClone(record)]),
+      );
+      try {
+        return await work(tx);
+      } catch (error) {
+        this.keys.clear();
+        for (const [kid, record] of snapshot) this.keys.set(kid, record);
+        throw error;
+      }
+    });
     this.tail = run.catch(() => undefined);
     return run;
   }

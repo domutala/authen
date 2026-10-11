@@ -167,3 +167,24 @@ test("Deux instances qui démarrent ensemble ne créent qu'une clé active", asy
   const records = await store.transaction((tx) => tx.list());
   assert.equal(records.filter((r) => r.status === "active").length, 1);
 });
+
+test("Store mémoire : une transaction en erreur est entièrement annulée", async () => {
+  const store = new MemorySigningKeyStore();
+  await assert.rejects(
+    store.transaction(async (tx) => {
+      await tx.insert({
+        kid: "partial",
+        algorithm: "RS256",
+        publicJwk: {},
+        privateKeyEncrypted: "secret",
+        status: "active",
+        createdAt: new Date(),
+        retiredAt: null,
+        expiresAt: null,
+      });
+      throw new Error("boom");
+    }),
+    /boom/,
+  );
+  assert.deepEqual(await store.transaction((tx) => tx.list()), []);
+});

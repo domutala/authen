@@ -238,12 +238,22 @@ export class MemoryTransactionRepository implements TransactionRepository {
     this.db.transactions.set(transaction.id, clone(transaction));
   }
 
-  // Pas de verrou optimiste ici : l'adaptateur mémoire ne simule pas la
-  // concurrence entre deux `continue()` simultanés sur la même transaction.
-  async update(transaction: AuthenticationTransaction): Promise<void> {
+  async update(
+    transaction: AuthenticationTransaction,
+    expected: Pick<AuthenticationTransaction, "status" | "attempts" | "updatedAt">,
+  ): Promise<boolean> {
     assertPresent(this.db.transactions, transaction.id, "transaction");
+    const current = this.db.transactions.get(transaction.id)!;
+    if (
+      current.status !== expected.status ||
+      current.attempts !== expected.attempts ||
+      current.updatedAt.getTime() !== expected.updatedAt.getTime()
+    ) {
+      return false;
+    }
     this.assertReferences(transaction);
     this.db.transactions.set(transaction.id, clone(transaction));
+    return true;
   }
 
   private assertReferences(transaction: AuthenticationTransaction): void {

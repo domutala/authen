@@ -86,9 +86,31 @@ const MIN_SECRET_LENGTH = 32;
 
 /** Postgres si `DATABASE_URL` est défini, sinon mémoire (développement). */
 export async function createRuntime(options: RuntimeOptions): Promise<Runtime> {
+  assertIssuer(options.issuer);
+  if (
+    options.keyRotationDays !== undefined &&
+    (!Number.isSafeInteger(options.keyRotationDays) || options.keyRotationDays <= 0)
+  ) {
+    throw new RangeError("AUTHEN_KEY_ROTATION_DAYS doit être un entier strictement positif");
+  }
   return options.databaseUrl
     ? createPostgresRuntime(options, options.databaseUrl)
     : await createMemoryRuntime(options);
+}
+
+function assertIssuer(value: string): void {
+  let issuer: URL;
+  try {
+    issuer = new URL(value);
+  } catch {
+    throw new TypeError("AUTHEN_ISSUER doit être une URL absolue valide");
+  }
+  if (!/^https?:$/.test(issuer.protocol) || issuer.username || issuer.password) {
+    throw new TypeError("AUTHEN_ISSUER doit être une URL HTTP(S) sans identifiants");
+  }
+  if (issuer.pathname !== "/" || issuer.search || issuer.hash) {
+    throw new TypeError("AUTHEN_ISSUER ne doit contenir ni chemin, ni query, ni fragment");
+  }
 }
 
 async function createMemoryRuntime(options: RuntimeOptions): Promise<Runtime> {

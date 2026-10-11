@@ -135,9 +135,15 @@ test(
 );
 
 test("serveur : DATABASE_URL sans secret de signature est refusé", async () => {
-  delete process.env.AUTHEN_SIGNING_SECRET;
-  await assert.rejects(
-    buildServer({ issuer: "http://identity.test", databaseUrl: "postgres://x" }),
-    /AUTHEN_SIGNING_SECRET/,
-  );
+  const previous = process.env.AUTHEN_SIGNING_SECRET;
+  process.env.AUTHEN_SIGNING_SECRET = "";
+  try {
+    await assert.rejects(
+      buildServer({ issuer: "http://identity.test", databaseUrl: "postgres://x" }),
+      /AUTHEN_SIGNING_SECRET/,
+    );
+  } finally {
+    if (previous === undefined) delete process.env.AUTHEN_SIGNING_SECRET;
+    else process.env.AUTHEN_SIGNING_SECRET = previous;
+  }
 });

@@ -201,7 +201,7 @@ export class AuthenticationService {
     }
 
     if (transaction.expiresAt.getTime() <= this.d.clock.now().getTime()) {
-      await this.save({ ...transaction, status: "expired" });
+      await this.save({ ...transaction, status: "expired" }, transaction);
       throw new AuthenticationError("transaction_expired");
     }
 
@@ -217,7 +217,7 @@ export class AuthenticationService {
   async cancel(transactionId: TransactionId): Promise<void> {
     const transaction = await this.requireTransaction(transactionId);
     if (transaction.status === "pending" || transaction.status === "waiting") {
-      await this.save({ ...transaction, status: "cancelled" });
+      await this.save({ ...transaction, status: "cancelled" }, transaction);
     }
   }
 
@@ -244,7 +244,7 @@ export class AuthenticationService {
           status: "waiting",
           currentStep: step.challengeType,
           expiresAt,
-        });
+        }, transaction);
         return {
           type: "challenge",
           transactionId: updated.id,
@@ -259,7 +259,7 @@ export class AuthenticationService {
           ...transaction,
           status: "waiting",
           currentStep: "redirect",
-        });
+        }, transaction);
         return { type: "redirect", transactionId: updated.id, url: step.url };
       }
 
@@ -280,6 +280,17 @@ export class AuthenticationService {
     retryable: boolean,
     phase: Phase,
   ): Promise<AuthResult> {
+    // Un challenge absent peut être en cours de consommation par une requête
+    // concurrente. Ne jamais réécrire ici le snapshot potentiellement ancien :
+    // la requête gagnante décidera seule de l'état final de la transaction.
+    if (phase === "continue" && code === "challenge_expired") {
+      return {
+        type: "rejected",
+        transactionId: transaction.id,
+        code,
+        retryable: false,
+      };
+    }
     const attempts = transaction.attempts + 1;
     const final =
       phase === "begin" || !retryable || attempts >= transaction.maxAttempts;
@@ -288,7 +299,7 @@ export class AuthenticationService {
       ...transaction,
       attempts,
       status: final ? "failed" : "waiting",
-    });
+    }, transaction);
 
     await this.publish(
       SecurityEventType.AuthenticationFailed,
@@ -319,7 +330,7 @@ export class AuthenticationService {
   ): Promise<AuthResult> {
     // Un provider ne doit jamais prouver une identité d'une autre instance.
     if (verified.providerInstanceId !== transaction.providerInstanceId) {
-      await this.save({ ...transaction, status: "failed" });
+      await this.save({ ...transaction, status: "failed" }, transaction);
       throw new AuthenticationError(
         "invalid_provider_response",
         "L'identité vérifiée ne correspond pas à l'instance de la transaction",
@@ -338,7 +349,7 @@ export class AuthenticationService {
       status: "completed",
       userId: outcome.userId,
       completedAt: now,
-    });
+    }, transaction);
 
     if (outcome.isNewUser) {
       await this.publish(SecurityEventType.UserRegistered, outcome.userId, {
@@ -599,9 +610,20 @@ export class AuthenticationService {
 
   private async save(
     transaction: AuthenticationTransaction,
+    expected: AuthenticationTransaction,
   ): Promise<AuthenticationTransaction> {
     const updated = { ...transaction, updatedAt: this.d.clock.now() };
-    await this.d.transactions.update(updated);
+    const saved = await this.d.transactions.update(updated, {
+      status: expected.status,
+      attempts: expected.attempts,
+      updatedAt: expected.updatedAt,
+    });
+    if (!saved) {
+      throw new AuthenticationError(
+        "transaction_not_active",
+        `Transaction ${transaction.id} modifiée par une autre requête`,
+      );
+    }
     return updated;
   }
 

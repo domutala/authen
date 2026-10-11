@@ -76,6 +76,7 @@ export class MemoryChallengeStore implements ChallengeStore {
     { value: string; expiresAt: Date }
   >();
   private readonly clock: Clock;
+  private readonly locks = new Map<string, Promise<void>>();
 
   constructor(clock: Clock) {
     this.clock = clock;
@@ -86,14 +87,33 @@ export class MemoryChallengeStore implements ChallengeStore {
   }
 
   async consume(key: string): Promise<string | null> {
-    const entry = this.entries.get(key);
-    if (!entry) return null;
+    const result = await this.consumeIf(key, () => true);
+    return result?.consumed ? result.value : null;
+  }
 
-    // Lecture ET suppression en une seule étape : usage unique garanti.
-    this.entries.delete(key);
-    return entry.expiresAt.getTime() > this.clock.now().getTime()
-      ? entry.value
-      : null;
+  async consumeIf(
+    key: string,
+    predicate: (value: string) => boolean,
+  ): Promise<{ value: string; consumed: boolean } | null> {
+    const previous = this.locks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => (release = resolve));
+    this.locks.set(key, current);
+    await previous;
+    try {
+      const entry = this.entries.get(key);
+      if (!entry) return null;
+      if (entry.expiresAt.getTime() <= this.clock.now().getTime()) {
+        this.entries.delete(key);
+        return null;
+      }
+      const consumed = predicate(entry.value);
+      if (consumed) this.entries.delete(key);
+      return { value: entry.value, consumed };
+    } finally {
+      release();
+      if (this.locks.get(key) === current) this.locks.delete(key);
+    }
   }
 }
 

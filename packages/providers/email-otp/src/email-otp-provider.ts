@@ -130,26 +130,24 @@ export class EmailOtpProvider implements AuthenticationProvider {
       return reject("invalid_code", true);
     }
 
-    // `consume` lit ET supprime : deux essais simultanés ne peuvent pas lire le même challenge.
-    const raw = await this.d.challenges.consume(challengeKey(context));
-    const stored = raw === null ? null : parseStored(raw);
+    const actual = await this.digest(context, code);
+    // La comparaison et la suppression ont lieu sous le même verrou. Un mauvais
+    // code ne crée donc aucune fenêtre où le challenge paraît absent.
+    const checked = await this.d.challenges.consumeIf(
+      challengeKey(context),
+      (raw) => {
+        const value = parseStored(raw);
+        return value !== null && constantTimeEqual(value.digest, actual);
+      },
+    );
+    const stored = checked === null ? null : parseStored(checked.value);
     const now = this.d.clock.now();
 
-    if (stored === null || new Date(stored.expiresAt) <= now) {
+    if (checked === null || stored === null || new Date(stored.expiresAt) <= now) {
       return reject("challenge_expired", false);
     }
 
-    const expected = stored.digest;
-    const actual = await this.digest(context, code);
-
-    if (!constantTimeEqual(expected, actual)) {
-      // Mauvais code : on remet le challenge en place (même échéance) pour permettre
-      // un nouvel essai. Le nombre d'essais est plafonné par la transaction du core.
-      await this.d.challenges.save(
-        challengeKey(context),
-        raw!,
-        new Date(stored.expiresAt),
-      );
+    if (!checked.consumed) {
       return reject("invalid_code", true);
     }
 

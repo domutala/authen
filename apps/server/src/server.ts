@@ -4,6 +4,7 @@ import type {
   SessionId,
   TransactionId,
 } from "@authen/core";
+import { AuthenticationError } from "@authen/core";
 import { OidcTransport } from "@authen/protocol-oauth-oidc";
 import {
   createEmailOtpProvider,
@@ -19,7 +20,7 @@ import Fastify, {
   type FastifyRequest,
 } from "fastify";
 
-import { registerEnv } from "./env.js";
+import { loadEnvironment } from "./env.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { safeReturnTo } from "./return-to.js";
 import { createRuntime } from "./runtime.js";
@@ -31,6 +32,8 @@ export interface ServerOptions {
   /** URL publique du serveur ; sinon AUTHEN_ISSUER, sinon http://HOST:PORT. */
   issuer?: string;
   otpSender?: OtpSender;
+  /** Surcharge du mode d'exécution, principalement pour les tests. */
+  environment?: string;
   secureCookies?: boolean;
   /** Surcharge `DATABASE_URL` ; `null` force le stockage mémoire. */
   databaseUrl?: string | null;
@@ -45,6 +48,11 @@ export interface ServerOptions {
 export async function buildServer(
   options: ServerOptions = {},
 ): Promise<FastifyInstance> {
+  const environment = options.environment ?? process.env.NODE_ENV ?? "development";
+  if (!options.otpSender && environment === "production") {
+    throw new Error("Un OtpSender explicite est requis en production");
+  }
+  const env = loadEnvironment();
   const envToLogger: Record<
     string,
     (FastifyLoggerOptions & PinoLoggerOptions) | boolean
@@ -63,11 +71,11 @@ export async function buildServer(
   };
 
   const app = Fastify({
-    logger: envToLogger[process.env.NODE_ENV ?? "development"] ?? true,
+    logger: envToLogger[environment] ?? true,
     // Derrière un proxy : l'IP vient de X-Forwarded-For (sinon elle serait falsifiable).
-    trustProxy: process.env.AUTHEN_TRUST_PROXY === "true",
+    trustProxy: env.AUTHEN_TRUST_PROXY,
   });
-  await registerEnv(app);
+  app.decorate("envs", env);
 
   const issuer = (
     options.issuer ??
@@ -221,10 +229,23 @@ export async function buildServer(
     if (!verifyLimit.allowed)
       return tooMany(reply, verifyLimit.retryAfterSeconds);
 
-    const result = await core.services.auth.continue(
-      transactionId as TransactionId,
-      { code },
-    );
+    let result;
+    try {
+      result = await core.services.auth.continue(
+        transactionId as TransactionId,
+        { code },
+      );
+    } catch (error) {
+      if (error instanceof AuthenticationError) {
+        const status = error.code === "transaction_not_found"
+          ? 404
+          : error.code === "transaction_not_active"
+            ? 409
+            : 400;
+        return reply.code(status).send({ error: error.code });
+      }
+      throw error;
+    }
 
     if (result.type !== "authenticated") return reply.code(401).send(result);
 
