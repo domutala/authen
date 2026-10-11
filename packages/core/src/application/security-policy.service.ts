@@ -65,6 +65,12 @@ export class SecurityPolicyService {
     );
   }
 
+  /** Une preuve de step-up future ou trop ancienne n'est jamais acceptée. */
+  acceptsStepUp(completedAt: Date, now: Date): boolean {
+    const age = now.getTime() - completedAt.getTime();
+    return age >= 0 && age <= this.options.stepUpMaxAgeMs;
+  }
+
   /** "high" si au moins deux méthodes ont été utilisées (MFA), sinon "standard". */
   assuranceLevelFor(methods: readonly string[]): string {
     return methods.length >= 2 ? "high" : "standard";

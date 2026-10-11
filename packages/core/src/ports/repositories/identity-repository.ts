@@ -8,7 +8,10 @@ import type {
 export interface IdentityRepository {
   findById(id: IdentityId): Promise<Identity | null>;
 
-  /** La clé d'unicité est (providerInstanceId, providerSubject), jamais l'email. */
+  /**
+   * La clé d'unicité est `(providerInstanceId, providerSubject)`, jamais
+   * l'email. L'index correspondant est obligatoire dans le stockage.
+   */
   findByProviderSubject(
     instanceId: ProviderInstanceId,
     subject: string,

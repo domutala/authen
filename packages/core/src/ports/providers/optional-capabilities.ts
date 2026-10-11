@@ -1,13 +1,29 @@
 import type { Credential } from "../../domain/user/credential.js";
-import type { CredentialId, UserId } from "../../shared/types.js";
+import type {
+  CredentialId,
+  ProviderInstanceId,
+  TransactionId,
+  UserId,
+} from "../../shared/types.js";
 import type {
   AuthenticationProvider,
   AuthStep,
 } from "./authentication-provider.js";
 
 /** Capacités facultatives : un provider ne les implémente que s'il les supporte. */
+export interface VerifiedEnrollmentContext {
+  userId: UserId;
+  providerInstanceId: ProviderInstanceId;
+  /** Transaction `step_up` vérifiée par `CredentialEnrollmentService`. */
+  stepUpTransactionId: TransactionId;
+}
+
 export interface CredentialEnrollmentProvider {
-  enroll(userId: UserId, input: unknown): Promise<Credential>;
+  /** Ne doit être appelé que par `CredentialEnrollmentService`. */
+  enroll(
+    context: VerifiedEnrollmentContext,
+    input: unknown,
+  ): Promise<Credential>;
 }
 
 export interface CredentialRevocationProvider {

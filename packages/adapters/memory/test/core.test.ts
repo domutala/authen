@@ -1,5 +1,5 @@
 import type { AuthResult, ProviderInstance, User, UserId } from "@authen/core";
-import { AuthenticationError } from "@authen/core";
+import { AuthenticationError, RepositoryError } from "@authen/core";
 import {
   createEmailOtpProvider,
   type OtpMessage,
@@ -89,6 +89,27 @@ async function signInWithEmail(env: Env, email = EMAIL) {
       purpose: "sign_in",
       userId: null,
       input: { email },
+    }),
+    "challenge",
+  );
+
+  return expectType(
+    await env.core.services.auth.continue(started.transactionId, {
+      code: env.lastCode(),
+    }),
+    "authenticated",
+  );
+}
+
+/** Réauthentification email liée à un utilisateur déjà connu. */
+async function stepUpWithEmail(env: Env, userId: UserId) {
+  const started = expectType(
+    await env.core.services.auth.begin({
+      providerInstanceId: env.emailInstance.id,
+      clientId: null,
+      purpose: "step_up",
+      userId,
+      input: { email: EMAIL },
     }),
     "challenge",
   );
@@ -322,13 +343,18 @@ test("Session : expiration par inactivité et révocation globale", async () => 
 
 test("Mot de passe : création par enroll puis connexion", async () => {
   const env = await setup();
-  const { auth } = env.core.services;
+  const { auth, enrollment } = env.core.services;
   const user = await signInWithEmail(env);
+  const stepUp = await stepUpWithEmail(env, user.userId);
 
-  await env.password.enroll(user.userId, {
+  await enrollment.enroll({
+    userId: user.userId,
     providerInstanceId: env.passwordInstance.id,
-    identifier: EMAIL,
-    password: "correct horse battery staple",
+    stepUpTransactionId: stepUp.transactionId,
+    input: {
+      identifier: EMAIL,
+      password: "correct horse battery staple",
+    },
   });
 
   const signIn = (identifier: string, password: string) =>
@@ -359,6 +385,69 @@ test("Mot de passe : création par enroll puis connexion", async () => {
   );
   assert.equal(wrong.code, "invalid_credentials");
   assert.equal(unknown.code, wrong.code);
+});
+
+test("Enrôlement : une connexion ordinaire ne vaut pas step-up", async () => {
+  const env = await setup();
+  const signIn = await signInWithEmail(env);
+
+  await assert.rejects(
+    env.core.services.enrollment.enroll({
+      userId: signIn.userId,
+      providerInstanceId: env.passwordInstance.id,
+      stepUpTransactionId: signIn.transactionId,
+      input: {
+        identifier: EMAIL,
+        password: "correct horse battery staple",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof AuthenticationError && error.code === "step_up_required",
+  );
+  assert.equal(env.core.db.credentials.size, 0);
+});
+
+test("Enrôlement : une preuve de step-up expirée est refusée", async () => {
+  const env = await setup({ security: { stepUpMaxAgeMs: 5 * MINUTE } });
+  const signIn = await signInWithEmail(env);
+  const stepUp = await stepUpWithEmail(env, signIn.userId);
+  env.clock.advance(5 * MINUTE + 1);
+
+  await assert.rejects(
+    env.core.services.enrollment.enroll({
+      userId: signIn.userId,
+      providerInstanceId: env.passwordInstance.id,
+      stepUpTransactionId: stepUp.transactionId,
+      input: {
+        identifier: EMAIL,
+        password: "correct horse battery staple",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof AuthenticationError && error.code === "step_up_expired",
+  );
+  assert.equal(env.core.db.credentials.size, 0);
+});
+
+test("Enrôlement : la preuve de step-up est liée au même utilisateur", async () => {
+  const env = await setup();
+  const signIn = await signInWithEmail(env);
+  const stepUp = await stepUpWithEmail(env, signIn.userId);
+
+  await assert.rejects(
+    env.core.services.enrollment.enroll({
+      userId: "another-user" as UserId,
+      providerInstanceId: env.passwordInstance.id,
+      stepUpTransactionId: stepUp.transactionId,
+      input: {
+        identifier: EMAIL,
+        password: "correct horse battery staple",
+      },
+    }),
+    (error: unknown) =>
+      error instanceof AuthenticationError && error.code === "step_up_invalid",
+  );
+  assert.equal(env.core.db.credentials.size, 0);
 });
 
 test("Mot de passe : l'inscription directe est refusée", async () => {
@@ -531,4 +620,102 @@ test("Concurrence refresh token : une seule rotation gagne", async () => {
     valid: false,
     reason: "revoked",
   });
+});
+
+test("Repositories : create et update respectent leur contrat", async () => {
+  const env = await setup();
+  const now = env.clock.now();
+  const user: User = {
+    id: "u-contract" as UserId,
+    status: "active",
+    lastAuthenticatedAt: null,
+    disabledAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await env.core.repositories.users.create(user);
+  await assert.rejects(
+    env.core.repositories.users.create(user),
+    (error: unknown) =>
+      error instanceof RepositoryError && error.code === "duplicate_key",
+  );
+
+  await assert.rejects(
+    env.core.repositories.users.update({
+      ...user,
+      id: "u-missing" as UserId,
+    }),
+    (error: unknown) =>
+      error instanceof RepositoryError && error.code === "record_not_found",
+  );
+});
+
+test("Transaction imbriquée : le rollback externe annule toutes les écritures", async () => {
+  const env = await setup();
+  const now = env.clock.now();
+  const makeUser = (id: string): User => ({
+    id: id as UserId,
+    status: "active",
+    lastAuthenticatedAt: null,
+    disabledAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await assert.rejects(
+    env.core.unitOfWork.run(async () => {
+      await env.core.repositories.users.create(makeUser("u-outer"));
+      await env.core.unitOfWork.run(async () => {
+        await env.core.repositories.users.create(makeUser("u-inner"));
+      });
+      throw new Error("rollback outer");
+    }),
+    /rollback outer/,
+  );
+
+  assert.equal(env.core.db.users.has("u-outer" as UserId), false);
+  assert.equal(env.core.db.users.has("u-inner" as UserId), false);
+});
+
+test("Transactions concurrentes : aucun état partiel n'est observable", async () => {
+  const env = await setup();
+  const now = env.clock.now();
+  const firstId = "u-first" as UserId;
+  const secondId = "u-second" as UserId;
+  const makeUser = (id: UserId): User => ({
+    id,
+    status: "active",
+    lastAuthenticatedAt: null,
+    disabledAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  let releaseFirst!: () => void;
+  const firstCanFinish = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  let firstWriteDone!: () => void;
+  const firstHasWritten = new Promise<void>((resolve) => {
+    firstWriteDone = resolve;
+  });
+
+  const first = env.core.unitOfWork.run(async () => {
+    await env.core.repositories.users.create(makeUser(firstId));
+    firstWriteDone();
+    await firstCanFinish;
+    await env.core.repositories.users.create(makeUser(secondId));
+  });
+  await firstHasWritten;
+
+  const observer = env.core.unitOfWork.run(async () => ({
+    first: await env.core.repositories.users.findById(firstId),
+    second: await env.core.repositories.users.findById(secondId),
+  }));
+  releaseFirst();
+
+  const [, observed] = await Promise.all([first, observer]);
+  assert.ok(observed.first);
+  assert.ok(observed.second);
 });

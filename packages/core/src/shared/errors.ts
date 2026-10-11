@@ -10,6 +10,9 @@ export type AuthenticationErrorCode =
   | "transaction_not_found"
   | "transaction_not_active"
   | "transaction_expired"
+  | "step_up_required"
+  | "step_up_invalid"
+  | "step_up_expired"
   | "user_required"
   | "user_not_found"
   | "invalid_user_transition"
@@ -36,6 +39,27 @@ export class AuthenticationError extends Error {
   ) {
     super(message ?? code, options);
     this.name = "AuthenticationError";
+    this.code = code;
+  }
+}
+
+export type RepositoryErrorCode =
+  | "duplicate_key"
+  | "record_not_found"
+  | "constraint_violation";
+
+/**
+ * Violation du contrat générique d'un repository.
+ *
+ * Les conflits métier qui doivent être interprétés par le core conservent leur
+ * erreur dédiée (par exemple `AuthenticationError("identity_conflict")`).
+ */
+export class RepositoryError extends Error {
+  readonly code: RepositoryErrorCode;
+
+  constructor(code: RepositoryErrorCode, message?: string) {
+    super(message ?? code);
+    this.name = "RepositoryError";
     this.code = code;
   }
 }

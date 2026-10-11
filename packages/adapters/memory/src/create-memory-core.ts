@@ -1,5 +1,6 @@
 import {
   AuthenticationService,
+  CredentialEnrollmentService,
   DefaultProviderRegistry,
   IdentityResolver,
   IdentityService,
@@ -141,6 +142,14 @@ export function createMemoryCore(options: MemoryCoreOptions = {}) {
     options: options.session ?? {},
   });
 
+  const enrollment = new CredentialEnrollmentService({
+    providers,
+    providerInstances: repositories.providerInstances,
+    transactions: repositories.transactions,
+    policy,
+    clock,
+  });
+
   const tokens = new TokenService({
     signer,
     digester,
@@ -193,6 +202,7 @@ export function createMemoryCore(options: MemoryCoreOptions = {}) {
       policy,
       providers,
       auth,
+      enrollment,
       sessions,
       tokens,
     },

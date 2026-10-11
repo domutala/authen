@@ -18,6 +18,7 @@ import {
   type SecretHasher,
   type TransactionRunner,
   type UserId,
+  type VerifiedEnrollmentContext,
 } from "@authen/core";
 
 export interface PasswordProviderOptions {
@@ -171,20 +172,17 @@ export class PasswordProvider
 
   /**
    * Crée l'identité "mot de passe" ET son credential, pour un utilisateur existant.
-   * `input` : `{ providerInstanceId, identifier, password }`.
-   *
-   * L'appelant doit avoir réauthentifié l'utilisateur au préalable (politique "step_up").
+   * Le contexte est produit après vérification du step-up par le core.
+   * `input` : `{ identifier, password }`.
    */
-  async enroll(userId: UserId, input: unknown): Promise<Credential> {
-    const providerInstanceId = readStringField(input, "providerInstanceId");
+  async enroll(
+    context: VerifiedEnrollmentContext,
+    input: unknown,
+  ): Promise<Credential> {
     const identifier = readStringField(input, "identifier");
     const password = readStringField(input, "password");
 
-    if (
-      providerInstanceId === null ||
-      identifier === null ||
-      password === null
-    ) {
+    if (identifier === null || password === null) {
       throw new PasswordPolicyError("invalid_identifier", "Entrée invalide");
     }
 
@@ -205,14 +203,14 @@ export class PasswordProvider
       );
     }
 
-    const instanceId = providerInstanceId as ProviderInstanceId;
+    const instanceId = context.providerInstanceId;
     const secretRef = await this.d.hasher.hash(password);
     const now = this.d.clock.now();
 
     // Identité + credential : tout ou rien.
     return this.d.unitOfWork.run(async () => {
       // Lève "identity_conflict" si cet identifiant est déjà pris.
-      const identity = await this.d.identityService.link(userId, {
+      const identity = await this.d.identityService.link(context.userId, {
         providerInstanceId: instanceId,
         subject,
         claims: {},
@@ -222,7 +220,7 @@ export class PasswordProvider
 
       const credential: Credential = {
         id: this.d.ids.generate<CredentialId>(),
-        userId,
+        userId: context.userId,
         identityId: identity.id,
         providerInstanceId: instanceId,
         type: "password",

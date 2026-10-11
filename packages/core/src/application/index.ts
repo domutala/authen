@@ -8,3 +8,4 @@ export * from "./authentication.service.js";
 export * from "./session.service.js";
 export * from "./token.service.js";
 export * from "./provider-registry.js";
+export * from "./credential-enrollment.service.js";

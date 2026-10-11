@@ -26,7 +26,7 @@ import type {
   UserProfile,
   UserRepository,
 } from "@authen/core";
-import { AuthenticationError } from "@authen/core";
+import { AuthenticationError, RepositoryError } from "@authen/core";
 import { clone, type MemoryDatabase } from "./database.js";
 
 export class MemoryUserRepository implements UserRepository {
@@ -42,10 +42,12 @@ export class MemoryUserRepository implements UserRepository {
   }
 
   async create(user: User): Promise<void> {
+    assertAbsent(this.db.users, user.id, "user");
     this.db.users.set(user.id, clone(user));
   }
 
   async update(user: User): Promise<void> {
+    assertPresent(this.db.users, user.id, "user");
     this.db.users.set(user.id, clone(user));
   }
 }
@@ -84,6 +86,8 @@ export class MemoryIdentityRepository implements IdentityRepository {
   }
 
   async create(identity: Identity): Promise<void> {
+    assertAbsent(this.db.identities, identity.id, "identity");
+    this.assertReferences(identity);
     // Contrainte d'unicité (instance, subject), comme un index UNIQUE en base.
     for (const existing of this.db.identities.values()) {
       if (
@@ -100,7 +104,18 @@ export class MemoryIdentityRepository implements IdentityRepository {
   }
 
   async update(identity: Identity): Promise<void> {
+    assertPresent(this.db.identities, identity.id, "identity");
+    this.assertReferences(identity);
     this.db.identities.set(identity.id, clone(identity));
+  }
+
+  private assertReferences(identity: Identity): void {
+    assertForeignKey(this.db.users, identity.userId, "identity.userId");
+    assertForeignKey(
+      this.db.providerInstances,
+      identity.providerInstanceId,
+      "identity.providerInstanceId",
+    );
   }
 }
 
@@ -117,10 +132,14 @@ export class MemoryProfileRepository implements ProfileRepository {
   }
 
   async create(profile: UserProfile): Promise<void> {
+    assertAbsent(this.db.profiles, profile.userId, "profile");
+    assertForeignKey(this.db.users, profile.userId, "profile.userId");
     this.db.profiles.set(profile.userId, clone(profile));
   }
 
   async update(profile: UserProfile): Promise<void> {
+    assertPresent(this.db.profiles, profile.userId, "profile");
+    assertForeignKey(this.db.users, profile.userId, "profile.userId");
     this.db.profiles.set(profile.userId, clone(profile));
   }
 }
@@ -144,11 +163,29 @@ export class MemoryCredentialRepository implements CredentialRepository {
   }
 
   async create(credential: Credential): Promise<void> {
+    assertAbsent(this.db.credentials, credential.id, "credential");
+    this.assertReferences(credential);
     this.db.credentials.set(credential.id, clone(credential));
   }
 
   async update(credential: Credential): Promise<void> {
+    assertPresent(this.db.credentials, credential.id, "credential");
+    this.assertReferences(credential);
     this.db.credentials.set(credential.id, clone(credential));
+  }
+
+  private assertReferences(credential: Credential): void {
+    assertForeignKey(this.db.users, credential.userId, "credential.userId");
+    assertForeignKey(
+      this.db.identities,
+      credential.identityId,
+      "credential.identityId",
+    );
+    assertForeignKey(
+      this.db.providerInstances,
+      credential.providerInstanceId,
+      "credential.providerInstanceId",
+    );
   }
 }
 
@@ -171,10 +208,14 @@ export class MemorySessionRepository implements SessionRepository {
   }
 
   async create(session: Session): Promise<void> {
+    assertAbsent(this.db.sessions, session.id, "session");
+    assertForeignKey(this.db.users, session.userId, "session.userId");
     this.db.sessions.set(session.id, clone(session));
   }
 
   async update(session: Session): Promise<void> {
+    assertPresent(this.db.sessions, session.id, "session");
+    assertForeignKey(this.db.users, session.userId, "session.userId");
     this.db.sessions.set(session.id, clone(session));
   }
 }
@@ -192,13 +233,28 @@ export class MemoryTransactionRepository implements TransactionRepository {
   }
 
   async create(transaction: AuthenticationTransaction): Promise<void> {
+    assertAbsent(this.db.transactions, transaction.id, "transaction");
+    this.assertReferences(transaction);
     this.db.transactions.set(transaction.id, clone(transaction));
   }
 
   // Pas de verrou optimiste ici : l'adaptateur mémoire ne simule pas la
   // concurrence entre deux `continue()` simultanés sur la même transaction.
   async update(transaction: AuthenticationTransaction): Promise<void> {
+    assertPresent(this.db.transactions, transaction.id, "transaction");
+    this.assertReferences(transaction);
     this.db.transactions.set(transaction.id, clone(transaction));
+  }
+
+  private assertReferences(transaction: AuthenticationTransaction): void {
+    assertForeignKey(
+      this.db.providerInstances,
+      transaction.providerInstanceId,
+      "transaction.providerInstanceId",
+    );
+    if (transaction.userId !== null) {
+      assertForeignKey(this.db.users, transaction.userId, "transaction.userId");
+    }
   }
 }
 
@@ -239,10 +295,14 @@ export class MemoryTokenFamilyRepository implements TokenFamilyRepository {
   }
 
   async create(family: TokenFamily): Promise<void> {
+    assertAbsent(this.db.tokenFamilies, family.id, "token family");
+    assertForeignKey(this.db.sessions, family.sessionId, "tokenFamily.sessionId");
     this.db.tokenFamilies.set(family.id, clone(family));
   }
 
   async update(family: TokenFamily): Promise<void> {
+    assertPresent(this.db.tokenFamilies, family.id, "token family");
+    assertForeignKey(this.db.sessions, family.sessionId, "tokenFamily.sessionId");
     this.db.tokenFamilies.set(family.id, clone(family));
   }
 }
@@ -262,6 +322,20 @@ export class MemoryRefreshTokenRepository implements RefreshTokenRepository {
   }
 
   async create(record: RefreshTokenRecord): Promise<void> {
+    assertAbsent(this.db.refreshTokens, record.id, "refresh token");
+    assertForeignKey(
+      this.db.tokenFamilies,
+      record.familyId,
+      "refreshToken.familyId",
+    );
+    for (const existing of this.db.refreshTokens.values()) {
+      if (existing.tokenHash === record.tokenHash) {
+        throw new RepositoryError(
+          "duplicate_key",
+          "Le condensat du refresh token existe déjà",
+        );
+      }
+    }
     this.db.refreshTokens.set(record.id, clone(record));
   }
 
@@ -285,5 +359,32 @@ export class MemoryRefreshTokenRepository implements RefreshTokenRepository {
       replacedByTokenId,
     });
     return true;
+  }
+}
+
+function assertAbsent<K, V>(map: Map<K, V>, key: K, entity: string): void {
+  if (map.has(key)) {
+    throw new RepositoryError(
+      "duplicate_key",
+      `${entity} déjà existant : ${String(key)}`,
+    );
+  }
+}
+
+function assertPresent<K, V>(map: Map<K, V>, key: K, entity: string): void {
+  if (!map.has(key)) {
+    throw new RepositoryError(
+      "record_not_found",
+      `${entity} introuvable : ${String(key)}`,
+    );
+  }
+}
+
+function assertForeignKey<K, V>(map: Map<K, V>, key: K, field: string): void {
+  if (!map.has(key)) {
+    throw new RepositoryError(
+      "constraint_violation",
+      `${field} référence une ligne inexistante : ${String(key)}`,
+    );
   }
 }

@@ -2,7 +2,10 @@ import type { RefreshTokenRecord } from "../../domain/token/refresh-token.js";
 import type { TokenId } from "../../shared/types.js";
 
 export interface RefreshTokenRepository {
-  /** Recherche par condensat du token (jamais par la valeur en clair). */
+  /**
+   * Recherche par condensat du token (jamais par la valeur en clair).
+   * `tokenHash` doit porter une contrainte UNIQUE.
+   */
   findByHash(tokenHash: string): Promise<RefreshTokenRecord | null>;
 
   create(record: RefreshTokenRecord): Promise<void>;
