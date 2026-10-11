@@ -1,0 +1,34 @@
+{
+  "name": "@authen/protocol-oauth-oidc",
+  "version": "0.0.1",
+  "description": "Minimal OAuth 2.0 / OpenID Connect transport for Authen",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts --clean",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@authen/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@authen/adapter-memory": "workspace:*",
+    "tsdown": "^0.15.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "@authen/adapter-postgres",
+  "version": "0.0.1",
+  "description": "PostgreSQL persistence adapter for Authen",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "migrations"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts --clean",
+    "dev": "tsdown src/index.ts --format esm --dts --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@authen/core": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "tsdown": "^0.15.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
