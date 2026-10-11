@@ -26,6 +26,7 @@ export function createPostgresAdapter(pool: Pool) {
     tokenFamilies: new PostgresTokenFamilyRepository(database),
     refreshTokens: new PostgresRefreshTokenRepository(database),
   };
+
   return { database, unitOfWork: database, repositories };
 }
 
