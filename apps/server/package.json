@@ -15,6 +15,7 @@
     "@authen/adapter-postgres": "workspace:*",
     "@authen/core": "workspace:*",
     "@authen/protocol-oauth-oidc": "workspace:*",
+    "drizzle-orm": "^0.45.4",
     "@authen/provider-email-otp": "workspace:*",
     "@fastify/cookie": "^11.0.2",
     "@fastify/env": "^7.0.1",

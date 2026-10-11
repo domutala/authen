@@ -9,7 +9,8 @@ declare module "fastify" {
 
       AUTHEN_ISSUER?: string;
 
-      DATABASE_URL: string;
+      DATABASE_URL?: string;
+      AUTHEN_SIGNING_SECRET?: string;
 
       OIDC_CLIENT_ID?: string;
       OIDC_REDIRECT_URI?: string;
@@ -37,6 +38,7 @@ export async function registerEnv(app: FastifyInstance) {
         OIDC_REDIRECT_URI: { type: "string" },
 
         DATABASE_URL: { type: "string" },
+        AUTHEN_SIGNING_SECRET: { type: "string" },
       },
     },
   });

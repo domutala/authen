@@ -1,3 +1,5 @@
 import { buildServer } from "./server.js";
 
-await buildServer({});
+const server = await buildServer({});
+
+await server.listen({ port: server.envs.PORT, host: server.envs.HOST });

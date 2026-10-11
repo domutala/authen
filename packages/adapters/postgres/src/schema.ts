@@ -218,6 +218,45 @@ export const refreshTokens = pgTable(
   (t) => [index("authen_refresh_tokens_family_id_idx").on(t.familyId)],
 );
 
+export const challenges = pgTable(
+  "authen_challenges",
+  {
+    key: text().primaryKey(),
+    value: text().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("authen_challenges_expires_at_idx").on(t.expiresAt)],
+);
+
+export const oauthClients = pgTable("authen_oauth_clients", {
+  id: text().primaryKey(),
+  redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
+  allowedScopes: jsonb("allowed_scopes").$type<string[]>().notNull(),
+  ...timestamps,
+});
+
+export const authorizationCodes = pgTable(
+  "authen_authorization_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClients.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id),
+    redirectUri: text("redirect_uri").notNull(),
+    scopes: jsonb().$type<string[]>().notNull(),
+    codeChallenge: text("code_challenge").notNull(),
+    nonce: text(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("authen_authorization_codes_expires_at_idx").on(t.expiresAt)],
+);
+
 export const schema = {
   users,
   providerInstances,
@@ -228,4 +267,7 @@ export const schema = {
   authenticationTransactions,
   tokenFamilies,
   refreshTokens,
+  challenges,
+  oauthClients,
+  authorizationCodes,
 };

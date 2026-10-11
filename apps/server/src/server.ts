@@ -1,17 +1,16 @@
-import { createMemoryCore } from "@authen/adapter-memory";
-import type { ClientId, SessionId, TransactionId } from "@authen/core";
-import {
-  MemoryAuthorizationCodeStore,
-  MemoryOAuthClientRegistry,
-  OidcTransport,
-} from "@authen/protocol-oauth-oidc";
+import type {
+  ClientId,
+  EventPublisher,
+  SessionId,
+  TransactionId,
+} from "@authen/core";
+import { OidcTransport } from "@authen/protocol-oauth-oidc";
 import {
   createEmailOtpProvider,
   type OtpMessage,
   type OtpSender,
 } from "@authen/provider-email-otp";
 
-import pg from "pg";
 import cookie from "@fastify/cookie";
 import Fastify, {
   type FastifyInstance,
@@ -22,13 +21,18 @@ import Fastify, {
 
 import { RsaIdTokenSigner } from "./id-token-signer.js";
 import { registerEnv } from "./env.js";
+import { createRuntime } from "./runtime.js";
 import type { PinoLoggerOptions } from "fastify/types/logger.js";
 
 const SESSION_COOKIE = "authen_session";
 
 export interface ServerOptions {
+  /** URL publique du serveur ; sinon AUTHEN_ISSUER, sinon http://HOST:PORT. */
+  issuer?: string;
   otpSender?: OtpSender;
   secureCookies?: boolean;
+  /** Surcharge `DATABASE_URL` ; `null` force le stockage mémoire. */
+  databaseUrl?: string | null;
 }
 
 export async function buildServer(
@@ -57,12 +61,35 @@ export async function buildServer(
   await registerEnv(app);
 
   const issuer = (
-    app.envs.AUTHEN_ISSUER ?? `http://${app.envs.HOST}:${app.envs.PORT}`
+    options.issuer ??
+    app.envs.AUTHEN_ISSUER ??
+    `http://${app.envs.HOST}:${app.envs.PORT}`
   ).replace(/\/$/, "");
 
   const clientId = app.envs.OIDC_CLIENT_ID;
 
-  const core = createMemoryCore({ issuer, audience: `${issuer}/api` });
+  const events: EventPublisher = {
+    async publish(event) {
+      app.log.info(
+        { eventType: event.eventType, userId: event.userId },
+        "security event",
+      );
+    },
+  };
+  const databaseUrl =
+    options.databaseUrl === undefined
+      ? app.envs.DATABASE_URL
+      : (options.databaseUrl ?? undefined);
+  const runtime = await createRuntime({
+    issuer,
+    databaseUrl,
+    signingSecret: app.envs.AUTHEN_SIGNING_SECRET,
+    events,
+  });
+  app.addHook("onClose", async () => runtime.close());
+  app.log.info({ storage: runtime.storage }, "stockage");
+  const core = runtime;
+
   const sender = options.otpSender ?? developmentOtpSender();
   core.services.providers.register(
     createEmailOtpProvider({
@@ -73,13 +100,12 @@ export async function buildServer(
       sender,
     }),
   );
-  const email = await core.addProviderInstance({
+  const email = await core.ensureProviderInstance({
     id: "email-main",
     type: "email-otp",
   });
 
-  const clients = new MemoryOAuthClientRegistry();
-  clients.register({
+  await core.ensureClient({
     id: (clientId ?? "authen-web") as ClientId,
     redirectUris: [
       app.envs.OIDC_REDIRECT_URI ?? "http://localhost:3001/callback",
@@ -88,8 +114,8 @@ export async function buildServer(
   });
 
   const transport = new OidcTransport({
-    clients,
-    codes: new MemoryAuthorizationCodeStore(core.clock),
+    clients: core.clients,
+    codes: core.codes,
     authentication: {
       async resolve(request) {
         const id = parseCookie(request.headers.get("cookie"), SESSION_COOKIE);
@@ -193,8 +219,6 @@ export async function buildServer(
         forward(transport, issuer, request, reply),
     });
   }
-
-  await app.listen({ host: app.envs.HOST, port: app.envs.PORT });
 
   return app;
 }

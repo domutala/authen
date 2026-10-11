@@ -1,4 +1,6 @@
+import type { Clock } from "@authen/core";
 import type { Pool } from "pg";
+import { PostgresChallengeStore } from "./challenge-store.js";
 import { PostgresDatabase } from "./database.js";
 import {
   PostgresCredentialRepository,
@@ -12,8 +14,17 @@ import {
   PostgresUserRepository,
 } from "./repositories.js";
 
-/** Assemble tous les repositories sur un même contexte transactionnel TypeORM. */
-export function createPostgresAdapter(pool: Pool) {
+export interface PostgresAdapterOptions {
+  /** Horloge utilisée pour l'expiration des challenges (réelle par défaut). */
+  clock?: Clock;
+}
+
+/** Assemble tous les repositories sur un même contexte transactionnel Drizzle. */
+export function createPostgresAdapter(
+  pool: Pool,
+  options: PostgresAdapterOptions = {},
+) {
+  const clock = options.clock ?? { now: () => new Date() };
   const database = new PostgresDatabase(pool);
   const repositories = {
     users: new PostgresUserRepository(database),
@@ -27,7 +38,9 @@ export function createPostgresAdapter(pool: Pool) {
     refreshTokens: new PostgresRefreshTokenRepository(database),
   };
 
-  return { database, unitOfWork: database, repositories };
+  const challenges = new PostgresChallengeStore(database, clock);
+
+  return { database, unitOfWork: database, repositories, challenges };
 }
 
 export type PostgresAdapter = ReturnType<typeof createPostgresAdapter>;

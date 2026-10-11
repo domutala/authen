@@ -146,3 +146,35 @@ test(
     }
   },
 );
+
+test(
+  "PostgreSQL : challenge à usage unique et expiration",
+  { skip: url ? false : "AUTHEN_POSTGRES_TEST_URL absent" },
+  async () => {
+    if (!url) return;
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
+      let now = new Date("2026-01-01T00:00:00Z");
+      const adapter = createPostgresAdapter(pool, {
+        clock: { now: () => now },
+      });
+      await migratePostgres(adapter.database);
+      await migratePostgres(adapter.database); // idempotent
+
+      const { challenges } = adapter;
+      await challenges.save("k", "v", new Date("2026-01-01T00:10:00Z"));
+      const results = await Promise.all([
+        challenges.consume("k"),
+        challenges.consume("k"),
+      ]);
+      assert.deepEqual(results.sort(), [null, "v"]);
+
+      await challenges.save("old", "v", new Date("2026-01-01T00:10:00Z"));
+      now = new Date("2026-01-01T00:11:00Z");
+      assert.equal(await challenges.consume("old"), null);
+    } finally {
+      await pool.end();
+    }
+  },
+);
